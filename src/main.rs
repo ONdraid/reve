@@ -26,7 +26,7 @@ struct Args {
     outputpath: String,
 
     /// upscale ratio (2, 3, 4)
-    #[clap(short = 's', long, value_parser = clap::value_parser!(u8).range(2..4))]
+    #[clap(short = 's', long, value_parser = clap::value_parser!(u8).range(2..5))]
     scale: u8,
 
     /// segment size (in frames)
@@ -34,7 +34,7 @@ struct Args {
     segmentsize: u32,
 
     /// video constant rate factor (crf: 51-0)
-    #[clap(short = 'c', long, value_parser = clap::value_parser!(u8).range(0..51), default_value_t = 18)]
+    #[clap(short = 'c', long, value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 18)]
     crf: u8,
 
     /// video encoding preset
