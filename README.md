@@ -8,7 +8,7 @@
 
 [![download](https://img.shields.io/github/downloads/ONdraid/reve/total)](https://github.com/ONdraid/reve/releases)
 [![support](https://img.shields.io/badge/Support-Windows%20x64-blue?logo=Windows)](https://support.microsoft.com/en-us/windows/32-bit-and-64-bit-windows-frequently-asked-questions-c6ca9541-8dce-4d48-0415-94a3faa2e13d)
-[![license](https://img.shields.io/github/license/ONdraid/reve)]()
+[![license](https://img.shields.io/github/license/ONdraid/reve.svg)](https://github.com/ONdraid/reve/blob/main/LICENSE)
 
 </div>
 
