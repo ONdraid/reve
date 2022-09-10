@@ -12,9 +12,9 @@
 
 </div>
 
-REVE utilizes [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan), [FFmpeg](https://ffmpeg.org/about.html) and [MediaInfo](https://mediaarea.net/en/MediaInfo) to make the video upscaling process **as easy as possible**.<br>
-[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) aims at developing **Practical Algorithms for General Image/Video Restoration**.<br>
-It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) to a practical restoration application (namely, Real-ESRGAN), which is trained with pure synthetic data.<br>
+REVE utilizes [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan), [FFmpeg](https://ffmpeg.org/about.html) and [MediaInfo](https://mediaarea.net/en/MediaInfo) to make the video upscaling process **as easy as possible**.
+[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) aims at developing **Practical Algorithms for General Image/Video Restoration**.
+It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) to a practical restoration application (namely, Real-ESRGAN), which is trained with pure synthetic data.
 
 ---
 
@@ -34,20 +34,20 @@ It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) t
 
 ### Portable executable file (REVE)
 
-You can download [Windows](https://github.com/ONdraid/reve/releases/latest/download/package.zip) **executable file for Intel/AMD/Nvidia GPU**.
+You can download [Windows](https://github.com/ONdraid/reve/releases/download/v0.0.1/reve-ncnn-vulkan-20221009-windows.zip) **executable file for Intel/AMD/Nvidia GPU**.
 
 This executable file is **portable** and includes all the binaries and models required. No CUDA or PyTorch environment is needed.<br>
 
 You can simply run the following command:
 
 ```bash
-./reve.exe -i input.mp4 -s 2 output.mp4
+./reve.exe -i onepiece_demo.mp4 -s 2 output.mp4
 ```
 
 Currently only provided model:
-1. realesr-animevideov3 (animation video)
+1. [realesr-animevideov3 (animation video)](https://github.com/xinntao/Real-ESRGAN/blob/master/docs/anime_video_model.md)
 
-You can use the `-S` argument to enable safe mode which will reduce cpu usage, for example, `./reve.exe -S -i input.mp4 -s 2 output.mp4`
+You can use the `-S` argument to enable safe mode which will reduce cpu usage, for example, `./reve.exe -S -i onepiece_demo.mp4 -s 2 output.mp4`
 
 #### Usage of portable executable file
 
