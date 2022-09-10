@@ -12,9 +12,13 @@
 
 </div>
 
+<div align="justify">
+
 REVE utilizes [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan), [FFmpeg](https://ffmpeg.org/about.html) and [MediaInfo](https://mediaarea.net/en/MediaInfo) to make the video upscaling process **as easy as possible**.
 [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) aims at developing **Practical Algorithms for General Image/Video Restoration**.
 It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) to a practical restoration application (namely, Real-ESRGAN), which is trained with pure synthetic data.
+
+</div>
 
 ---
 
