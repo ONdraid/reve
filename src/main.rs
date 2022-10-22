@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
-use std::thread;
+use std::{thread, time::Duration};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -238,7 +238,7 @@ fn main() {
     println!(
         "{}",
         format!(
-            "total segments: {}, last segment size: {}",
+            "total segments: {}, last segment size: {} (ctrl+c to exit)",
             parts_num, last_part_size
         )
         .red()
@@ -262,18 +262,17 @@ fn main() {
         }
 
         let mut join_handlers = Vec::new();
-        let mut merge_handlers = Vec::new();
+        let mut merge_handle = thread::spawn(move || {});
         let m = MultiProgress::new();
         let pb = m.add(ProgressBar::new(parts_num as u64));
         pb.set_style(ProgressStyle::default_bar()
           .template("[{elapsed_precise}] [{bar:40.green/white}] {pos:>7}/{len:7} processed segments (eta: {eta})")
           .unwrap().progress_chars("#>-"));
-        pb.set_position((parts_num - unprocessed_indexes.len() as i32) as u64);
         let mut last_pb = pb.clone();
 
         while !unprocessed_indexes.is_empty() {
             let part_index = unprocessed_indexes[0];
-            while join_handlers.len() != 3 && join_handlers.len() < unprocessed_indexes.len() {
+            while join_handlers.len() != 2 && join_handlers.len() < unprocessed_indexes.len() {
                 let index = unprocessed_indexes[join_handlers.len()];
                 let _ffmpeg = ffmpeg_path.clone();
                 let _inpt = args.inputpath.clone();
@@ -284,7 +283,9 @@ fn main() {
                     .into_os_string()
                     .into_string()
                     .unwrap();
-                let _start_frame = index * args.segmentsize as i32;
+                let _start_time = ((index * args.segmentsize as i32 - 1) as f32
+                    / original_frame_rate.parse::<f32>().unwrap())
+                .to_string();
                 let _index_dir = current_exe_path
                     .parent()
                     .unwrap()
@@ -300,7 +301,7 @@ fn main() {
 
                 let progress_bar = m.insert_after(&last_pb, ProgressBar::new(_frame_number as u64));
                 progress_bar.set_style(ProgressStyle::default_bar()
-                            .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} exporting segment [{}] ({{per_sec}}, {{eta}})", index))
+                            .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} exporting segment [{}] {{per_sec}}", index))
                             .unwrap().progress_chars("#>-"));
                 last_pb = progress_bar.clone();
 
@@ -310,7 +311,7 @@ fn main() {
                         &_ffmpeg,
                         &_inpt,
                         &_outpt,
-                        &_start_frame,
+                        &_start_time,
                         &(_frame_number as u32),
                         progress_bar,
                     )
@@ -349,7 +350,7 @@ fn main() {
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
             progress_bar.set_style(ProgressStyle::default_bar()
-                        .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} upscaling segment [{}] ({{per_sec}}, {{eta}})", part_index))
+                        .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} upscaling segment [{}] {{per_sec}}", part_index))
                         .unwrap().progress_chars("#>-"));
             last_pb = progress_bar.clone();
 
@@ -361,6 +362,8 @@ fn main() {
                 progress_bar,
             )
             .expect("could not upscale frames");
+
+            merge_handle.join().unwrap();
 
             let _ffmpeg = ffmpeg_path.clone();
             let _inpt = current_exe_path
@@ -384,11 +387,11 @@ fn main() {
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
             progress_bar.set_style(ProgressStyle::default_bar()
-                        .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} merging segment [{}] ({{per_sec}}, {{eta}})", part_index))
+                        .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} merging segment [{}] {{per_sec}}", part_index))
                         .unwrap().progress_chars("#>-"));
             last_pb = progress_bar.clone();
 
-            let merge_handle = thread::spawn(move || {
+            merge_handle = thread::spawn(move || {
                 fs::remove_dir_all(&inpt_dir).unwrap();
                 merge_frames(
                     &_ffmpeg,
@@ -403,18 +406,11 @@ fn main() {
                 .unwrap();
                 fs::remove_dir_all(&outpt_dir).unwrap();
             });
-            merge_handlers.push(merge_handle);
             unprocessed_indexes.remove(0);
 
-            pb.set_position((parts_num - unprocessed_indexes.len() as i32) as u64);
+            pb.set_position((parts_num - unprocessed_indexes.len() as i32 - 1) as u64);
         }
-
-        while !merge_handlers.is_empty() {
-            merge_handlers
-                .remove(0)
-                .join()
-                .expect("could not handle thread");
-        }
+        merge_handle.join().unwrap();
     }
 
     // Merge video parts
@@ -450,7 +446,26 @@ fn main() {
         .into_os_string()
         .into_string()
         .unwrap();
-    merge_video_parts(&ffmpeg_path, &txt_list_path, &temp_video_path);
+
+    {
+        let mut count = 0;
+        let p = Path::new(&temp_video_path);
+        loop {
+            thread::sleep(Duration::from_secs(1));
+            if count == 5 {
+                panic!("could not merge segments")
+            } else if p.exists() {
+                if std::fs::File::open(p).unwrap().metadata().unwrap().len() == 0 {
+                    count += 1;
+                } else {
+                    break;
+                }
+            } else {
+                merge_video_parts(&ffmpeg_path, &txt_list_path, &temp_video_path);
+                count += 1;
+            }
+        }
+    }
 
     println!("copying streams");
     copy_streams(
@@ -460,10 +475,18 @@ fn main() {
         &args.outputpath,
     );
 
-    clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
-    fs::remove_file(&txt_list_path).expect("Unable to delete file");
-    fs::remove_file(&args_path).expect("Unable to delete file");
-    fs::remove_file(&temp_video_path).expect("Unable to delete file");
+    // Validation
+    {
+        let p = Path::new(&temp_video_path);
+        if p.exists() && std::fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
+            clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
+            fs::remove_file(&txt_list_path).expect("Unable to delete file");
+            fs::remove_file(&args_path).expect("Unable to delete file");
+            fs::remove_file(&temp_video_path).expect("Unable to delete file");
+        } else {
+            panic!("final file validation error: try running again")
+        }
+    }
 
     clear().expect("failed to clear screen");
     println!("done");
@@ -498,7 +521,7 @@ fn export_frames(
     bin_path: &String,
     input_path: &String,
     output_path: &String,
-    start_frame: &i32,
+    start_time: &String,
     frame_number: &u32,
     progress_bar: ProgressBar,
 ) -> Result<(), Error> {
@@ -506,6 +529,8 @@ fn export_frames(
         .args([
             "-v",
             "verbose",
+            "-ss",
+            start_time,
             "-i",
             input_path,
             "-qscale:v",
@@ -514,8 +539,6 @@ fn export_frames(
             "1",
             "-qmax",
             "1",
-            "-vf",
-            &format!("select='gte(n\\,{})'", start_frame),
             "-vsync",
             "0",
             "-vframes",
