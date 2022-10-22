@@ -34,7 +34,7 @@ struct Args {
     segmentsize: u32,
 
     /// video constant rate factor (crf: 51-0)
-    #[clap(short = 'c', long, value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 18)]
+    #[clap(short = 'c', long, value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 15)]
     crf: u8,
 
     /// video encoding preset
@@ -46,7 +46,7 @@ struct Args {
         short = 'x',
         long,
         value_parser,
-        default_value = "limit-sao:bframes=8:psy-rd=1.5:psy-rdoq=2:aq-mode=3"
+        default_value = "psy-rd=2:aq-strength=1:deblock=0,0:bframes=8"
     )]
     x265params: String,
 }
