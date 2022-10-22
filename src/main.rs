@@ -49,10 +49,6 @@ struct Args {
         default_value = "limit-sao:bframes=8:psy-rd=1.5:psy-rdoq=2:aq-mode=3"
     )]
     x265params: String,
-
-    /// enable safe mode
-    #[clap(short = 'S', long, action)]
-    safemode: bool,
 }
 
 fn input_validation(s: &str) -> Result<String, String> {
