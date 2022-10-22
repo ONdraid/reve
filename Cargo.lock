@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "reve"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "clap",
  "clearscreen",
