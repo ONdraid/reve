@@ -38,7 +38,7 @@ It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) t
 
 ### Portable executable file (REVE)
 
-You can download [Windows](https://github.com/ONdraid/reve/releases/download/v0.0.1/reve-ncnn-vulkan-20221009-windows.zip) **executable file for Intel/AMD/Nvidia GPU**.
+You can download [Windows](https://github.com/ONdraid/reve/releases/download/v0.0.2/reve-ncnn-vulkan-20222210-windows.zip) **executable file for Intel/AMD/Nvidia GPU**.
 
 This executable file is **portable** and includes all the binaries and models required. No CUDA or PyTorch environment is needed.<br>
 
@@ -51,8 +51,6 @@ You can simply run the following command:
 Currently only provided model:
 1. [realesr-animevideov3 (animation video)](https://github.com/xinntao/Real-ESRGAN/blob/master/docs/anime_video_model.md)
 
-You can use the `-S` argument to enable safe mode which will reduce cpu usage, for example, `./reve.exe -S -i onepiece_demo.mp4 -s 2 output.mp4`
-
 #### Usage of portable executable file
 
 ```console
@@ -63,15 +61,14 @@ ARGS:
     <OUTPUTPATH>    output video path (mp4/mkv)
 
 OPTIONS:
-    -c, --crf <CRF>                    video constant rate factor (crf: 51-0) [default: 18]
-    -h, --help                         print help information
+    -c, --crf <CRF>                    video constant rate factor (crf: 51-0) [default: 15]
+    -h, --help                         Print help information
     -i, --inputpath <INPUTPATH>        input video path (mp4/mkv)
     -p, --preset <PRESET>              video encoding preset [default: slow]
     -P, --segmentsize <SEGMENTSIZE>    segment size (in frames) [default: 1000]
     -s, --scale <SCALE>                upscale ratio (2, 3, 4)
-    -S, --safemode                     enable safe mode
     -x, --x265params <X265PARAMS>      x265 encoding parameters [default:
-                                       limit-sao:bframes=8:psy-rd=1.5:psy-rdoq=2:aq-mode=3]
+                                       psy-rd=2:aq-strength=1:deblock=0,0:bframes=8]
 ```
 
 Note that it may introduce block inconsistency, because [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan) first crops the input image into several tiles, and then processes them separately, finally stitches together.
