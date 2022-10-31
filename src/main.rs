@@ -10,6 +10,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::{thread, time::Duration};
+use dialoguer::{Confirm};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -127,15 +128,15 @@ fn main() {
     let args;
     if Path::new(&args_path).exists() {
         clear().expect("failed to clear screen");
-        let mut line = String::new();
         println!(
-            "{}\n{}",
+            "{}",
             format!("found existing temporary files.").red(),
-            format!("resume upscaling previous video (y/n)?")
         );
-        std::io::stdin().read_line(&mut line).unwrap();
-        line = line.trim().to_string();
-        if line.to_lowercase().eq("n") | line.to_lowercase().eq("no") {
+
+        if !Confirm::new().with_prompt("resume upscaling previous video?").default(true).show_default(true).interact().unwrap() {
+            if !Confirm::new().with_prompt("all progress will be lost. do you want to continue?").default(true).show_default(true).interact().unwrap() {
+                std::process::exit(1);
+            }
             clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
             match fs::remove_file(&txt_list_path) {
                 Ok(()) => "ok",
@@ -163,15 +164,12 @@ fn main() {
                 "{}",
                 format!("deleted all temporary files, parsing console input").green()
             );
-        } else if line.to_lowercase().eq("y") | line.to_lowercase().eq("yes") {
+        } else {
             let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
             args = serde_json::from_str(&args_json).unwrap();
             clear_dirs(&[&tmp_frames_path, &out_frames_path]);
             clear().expect("failed to clear screen");
             println!("{}", format!("resuming upscale").green());
-        } else {
-            clear().expect("failed to clear screen");
-            panic!("invalid answer. expected y/n.");
         }
     } else {
         args = Args::parse();
@@ -262,7 +260,7 @@ fn main() {
         let m = MultiProgress::new();
         let pb = m.add(ProgressBar::new(parts_num as u64));
         pb.set_style(ProgressStyle::default_bar()
-          .template("[{elapsed_precise}] [{bar:40.green/white}] {pos:>7}/{len:7} processed segments (eta: {eta})")
+          .template("[info][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processed segments       eta: {eta:<7}")
           .unwrap().progress_chars("#>-"));
         let mut last_pb = pb.clone();
 
@@ -297,7 +295,7 @@ fn main() {
 
                 let progress_bar = m.insert_after(&last_pb, ProgressBar::new(_frame_number as u64));
                 progress_bar.set_style(ProgressStyle::default_bar()
-                            .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} exporting segment [{}] {{per_sec}}", index))
+                            .template("[expo][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} exporting segment        {per_sec:<12}")
                             .unwrap().progress_chars("#>-"));
                 last_pb = progress_bar.clone();
 
@@ -346,7 +344,7 @@ fn main() {
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
             progress_bar.set_style(ProgressStyle::default_bar()
-                        .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} upscaling segment [{}] {{per_sec}}", part_index))
+                        .template("[upsc][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} upscaling segment        {per_sec:<12}")
                         .unwrap().progress_chars("#>-"));
             last_pb = progress_bar.clone();
 
@@ -365,7 +363,7 @@ fn main() {
             let _inpt = current_exe_path
                 .parent()
                 .unwrap()
-                .join(format!("temp\\out_frames\\{}\\frame%08d.jpg", part_index))
+                .join(format!("temp\\out_frames\\{}\\frame%08d.png", part_index))
                 .into_os_string()
                 .into_string()
                 .unwrap();
@@ -383,7 +381,7 @@ fn main() {
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
             progress_bar.set_style(ProgressStyle::default_bar()
-                        .template(&format!("[{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{pos:>7}}/{{len:7}} merging segment [{}] {{per_sec}}", part_index))
+                        .template("[merg][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} merging segment          {per_sec:<12}")
                         .unwrap().progress_chars("#>-"));
             last_pb = progress_bar.clone();
 
@@ -580,7 +578,7 @@ fn upscale_frames(
             "-s",
             scale,
             "-f",
-            "jpg",
+            "png",
             "-v",
         ])
         .stderr(Stdio::piped())
