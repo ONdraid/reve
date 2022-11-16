@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::{thread, time::Duration};
 use dialoguer::{Confirm};
+use std::time::Instant;
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -35,12 +36,21 @@ struct Args {
     segmentsize: u32,
 
     /// video constant rate factor (crf: 51-0)
-    #[clap(short = 'c', long, value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 15)]
+    #[clap(short = 'c', long = "crf", value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 15)]
     crf: u8,
 
     /// video encoding preset
     #[clap(short = 'p', long, value_parser = preset_validation, default_value = "slow")]
     preset: String,
+
+    /// codec encoding parameters (libsvt_hevc, libsvtav1, libx265)
+    #[clap(
+        short = 'l',
+        long = "lib",
+        value_parser = codec_validation,
+        default_value = "libx265"
+    )]
+    codec: String,
 
     /// x265 encoding parameters
     #[clap(
@@ -58,8 +68,8 @@ fn input_validation(s: &str) -> Result<String, String> {
         return Err(String::from_str("input path not found").unwrap());
     }
     match p.extension().unwrap().to_str().unwrap() {
-        "mp4" | "mkv" => Ok(s.to_string()),
-        _ => Err(String::from_str("valid input formats: mp4/mkv").unwrap()),
+        "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+        _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
     }
 }
 
@@ -69,8 +79,8 @@ fn output_validation(s: &str) -> Result<String, String> {
         return Err(String::from_str("output path already exists").unwrap());
     }
     match p.extension().unwrap().to_str().unwrap() {
-        "mp4" | "mkv" => Ok(s.to_string()),
-        _ => Err(String::from_str("valid output formats: mp4/mkv").unwrap()),
+        "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+        _ => Err(String::from_str("valid output formats: mp4/mkv/avi").unwrap()),
     }
 }
 
@@ -85,8 +95,19 @@ fn preset_validation(s: &str) -> Result<String, String> {
     }
 }
 
+fn codec_validation(s: &str) -> Result<String, String> {
+    match s {
+        "libx265" | "libsvt_hevc" | "libsvtav1" => Ok(s.to_string()),
+        _ => Err(String::from_str(
+            "valid: libx265/libsvt_hevc/libsvtav1",
+        )
+        .unwrap()),
+    }
+}
+
 fn main() {
     let current_exe_path = env::current_exe().unwrap();
+    let now = Instant::now();
 
     let tmp_frames_path = current_exe_path
         .parent()
@@ -228,12 +249,13 @@ fn main() {
     // Calculate steps
     let parts_num = (total_frame_count as f32 / args.segmentsize as f32).ceil() as i32;
     let last_part_size = total_frame_count % args.segmentsize as i32;
+    let _codec = args.codec.clone();
     clear().expect("failed to clear screen");
     println!(
         "{}",
         format!(
-            "total segments: {}, last segment size: {} (ctrl+c to exit)",
-            parts_num, last_part_size
+            "total segments: {}, last segment size: {}, codec: {} (ctrl+c to exit)",
+            parts_num, last_part_size, _codec
         )
         .red()
     );
@@ -367,6 +389,7 @@ fn main() {
                 .into_os_string()
                 .into_string()
                 .unwrap();
+            let _codec = args.codec.clone();
             let _outpt = current_exe_path
                 .parent()
                 .unwrap()
@@ -387,9 +410,39 @@ fn main() {
 
             merge_handle = thread::spawn(move || {
                 fs::remove_dir_all(&inpt_dir).unwrap();
+            });
+
+            if _codec == "libsvt_hevc" {
+                merge_frames_svt_hevc(
+                    &_ffmpeg,
+                    &_inpt,
+                    &_codec,
+                    &_outpt,
+                    &_frmrt,
+                    &_crf,
+                    progress_bar,
+                )
+                .unwrap();
+                fs::remove_dir_all(&outpt_dir).unwrap();
+            }
+            else if _codec == "libsvtav1" {
+                merge_frames_svt_av1(
+                    &_ffmpeg,
+                    &_inpt,
+                    &_codec,
+                    &_outpt,
+                    &_frmrt,
+                    &_crf,
+                    progress_bar,
+                )
+                .unwrap();
+                fs::remove_dir_all(&outpt_dir).unwrap();
+            }
+            else if _codec == "libx265" {
                 merge_frames(
                     &_ffmpeg,
                     &_inpt,
+                    &_codec,
                     &_outpt,
                     &_frmrt,
                     &_crf,
@@ -399,9 +452,8 @@ fn main() {
                 )
                 .unwrap();
                 fs::remove_dir_all(&outpt_dir).unwrap();
-            });
+            }
             unprocessed_indexes.remove(0);
-
             pb.set_position((parts_num - unprocessed_indexes.len() as i32 - 1) as u64);
         }
         merge_handle.join().unwrap();
@@ -483,7 +535,16 @@ fn main() {
     }
 
     clear().expect("failed to clear screen");
-    println!("done");
+    let elapsed = now.elapsed();
+    let seconds = elapsed.as_secs() % 60;
+    let minutes = (elapsed.as_secs() / 60) % 60;
+    let hours = (elapsed.as_secs() / 60) / 60;
+
+    // if without quotes
+    //let ancestors = Path::new(& _file_path).file_name().unwrap().to_str().unwrap();
+    //println!("done {} in {}h:{}m:{}s", ancestors, hours, minutes, seconds);
+    let ancestors = Path::new(& args.inputpath).file_name().unwrap();
+    println!("done {:?} in {}h:{}m:{}s", ancestors, hours, minutes, seconds);
 }
 
 fn get_frame_count(bin_path: &String, input_path: &String) -> i32 {
@@ -604,6 +665,7 @@ fn upscale_frames(
 fn merge_frames(
     bin_path: &String,
     input_path: &String,
+    codec: &String,
     output_path: &String,
     frame_rate: &String,
     crf: &String,
@@ -622,7 +684,7 @@ fn merge_frames(
             "-i",
             input_path,
             "-c:v",
-            "libx265",
+            codec,
             "-pix_fmt",
             "yuv420p10le",
             "-crf",
@@ -654,6 +716,101 @@ fn merge_frames(
     Ok(())
 }
 
+fn merge_frames_svt_hevc(
+    bin_path: &String,
+    input_path: &String,
+    codec: &String,
+    output_path: &String,
+    frame_rate: &String,
+    crf: &String,
+    progress_bar: ProgressBar,
+) -> Result<(), Error> {
+    let stderr = Command::new(bin_path)
+        .args([
+            "-v",
+            "verbose",
+            "-f",
+            "image2",
+            "-framerate",
+            &format!("{}/1", frame_rate),
+            "-i",
+            input_path,
+            "-c:v",
+            codec,
+            "-pix_fmt",
+            "yuv420p10le",
+            "-crf",
+            crf,
+            output_path,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?
+        .stderr
+        .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture standard output."))?;
+
+    let reader = BufReader::new(stderr);
+    let mut count = 0;
+
+    reader
+        .lines()
+        .filter_map(|line| line.ok())
+        .filter(|line| line.contains("AVIOContext"))
+        .for_each(|_| {
+            count += 1;
+            progress_bar.set_position(count);
+        });
+
+    Ok(())
+}
+
+fn merge_frames_svt_av1(
+    bin_path: &String,
+    input_path: &String,
+    codec: &String,
+    output_path: &String,
+    frame_rate: &String,
+    crf: &String,
+    progress_bar: ProgressBar,
+) -> Result<(), Error> {
+    let stderr = Command::new(bin_path)
+        .args([
+            "-v",
+            "verbose",
+            "-f",
+            "image2",
+            "-framerate",
+            &format!("{}/1", frame_rate),
+            "-i",
+            input_path,
+            "-c:v",
+            codec,
+            "-pix_fmt",
+            "yuv420p10le",
+            "-crf",
+            crf,
+            output_path,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?
+        .stderr
+        .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture standard output."))?;
+
+    let reader = BufReader::new(stderr);
+    let mut count = 0;
+
+    reader
+        .lines()
+        .filter_map(|line| line.ok())
+        .filter(|line| line.contains("AVIOContext"))
+        .for_each(|_| {
+            count += 1;
+            progress_bar.set_position(count);
+        });
+
+    Ok(())
+}
 fn merge_video_parts(
     bin_path: &String,
     input_path: &String,
