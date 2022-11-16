@@ -12,6 +12,7 @@ use std::str::FromStr;
 use std::{thread, time::Duration};
 use dialoguer::{Confirm};
 use std::time::Instant;
+use execute::Execute;
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -105,9 +106,33 @@ fn codec_validation(s: &str) -> Result<String, String> {
     }
 }
 
+fn check_ffmpeg() {
+    let mut command = Command::new("bin\\ffmpeg.exe");
+    //let output = command.execute_output().unwrap();
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    let output = command.execute_output().unwrap();
+
+    let output = Command::new("bin\\ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    if stderr.contains("libsvt_hevc") {
+        println!("libsvt_hevc supported!")
+    }
+    if stderr.contains("libsvtav1") {
+        println!("libsvtav1 supported!")
+    }
+    if stderr.contains("libx265") {
+        println!("libx265 supported!")
+    }
+}
+
 fn main() {
     let current_exe_path = env::current_exe().unwrap();
     let now = Instant::now();
+
+    check_ffmpeg();
+    std::process::exit(1);
 
     let tmp_frames_path = current_exe_path
         .parent()
