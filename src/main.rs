@@ -117,13 +117,19 @@ fn check_ffmpeg() {
     let stderr = String::from_utf8(output.stderr).unwrap();
 
     if stderr.contains("libsvt_hevc") {
-        println!("libsvt_hevc supported!")
+        println!("{}",format!("libsvt_hevc supported!").green());
+    } else {
+        println!("{}",format!("libsvt_hevc not supported!").red());  
     }
     if stderr.contains("libsvtav1") {
-        println!("libsvtav1 supported!")
+        println!("{}",format!("libsvtav1 supported!").green());
+    } else {
+        println!("{}",format!("libsvtav1 not supported!").red());
     }
     if stderr.contains("libx265") {
-        println!("libx265 supported!")
+        println!("{}",format!("libx265 supported!").green());
+    } else {
+        println!("{}",format!("libx265 not supported!").red());
     }
 }
 
