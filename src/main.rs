@@ -106,7 +106,7 @@ fn codec_validation(s: &str) -> Result<String, String> {
     }
 }
 
-fn check_ffmpeg() {
+fn check_ffmpeg() -> String {
     let mut command = Command::new("bin\\ffmpeg.exe");
     //let output = command.execute_output().unwrap();
     command.stdout(Stdio::piped());
@@ -116,29 +116,68 @@ fn check_ffmpeg() {
     let output = Command::new("bin\\ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
 
+    struct ValidCodecs {
+        libsvt_hevc: String,
+        libsvtav1: String,
+        libx265: String,
+    }
+
+    impl Default for ValidCodecs {
+        fn default() -> ValidCodecs {
+            ValidCodecs {
+                libsvt_hevc: 0.to_string(),
+                libsvtav1: 0.to_string(),
+                libx265: 0.to_string(),
+            }
+        }
+    }
+
+    let mut valid_codecs = ValidCodecs {
+        libsvt_hevc: 0.to_string(),
+        libsvtav1: 0.to_string(),
+        libx265: 0.to_string(),
+    };
+
     if stderr.contains("libsvt_hevc") {
         println!("{}",format!("libsvt_hevc supported!").green());
+        valid_codecs.libsvt_hevc = "libsvt_hevc".to_string();
     } else {
-        println!("{}",format!("libsvt_hevc not supported!").red());  
+        println!("{}",format!("libsvt_hevc not supported!").red());
+        valid_codecs.libsvt_hevc = "".to_string();
     }
     if stderr.contains("libsvtav1") {
         println!("{}",format!("libsvtav1 supported!").green());
+        valid_codecs.libsvtav1 = "libsvtav1".to_string();
     } else {
         println!("{}",format!("libsvtav1 not supported!").red());
+        valid_codecs.libsvtav1 = "".to_string();
     }
     if stderr.contains("libx265") {
         println!("{}",format!("libx265 supported!").green());
+        valid_codecs.libx265 = "libx265".to_string();
     } else {
         println!("{}",format!("libx265 not supported!").red());
+        valid_codecs.libx265 = "".to_string();
     }
+
+    let codec_support = String::from(format!("{}{}{}", valid_codecs.libsvt_hevc.to_string(), valid_codecs.libsvtav1.to_string(), valid_codecs.libx265.to_string()));
+    return codec_support;
+
+}
+
+fn create_dirs() -> std::io::Result<()> {
+    fs::create_dir_all("temp\\tmp_frames\\")?;
+    fs::create_dir_all("temp\\video_parts\\")?;
+    fs::create_dir_all("temp\\out_frames\\")?;
+    fs::create_dir_all("bin\\")?;
+    Ok(())
 }
 
 fn main() {
     let current_exe_path = env::current_exe().unwrap();
     let now = Instant::now();
 
-    check_ffmpeg();
-    std::process::exit(1);
+    create_dirs();
 
     let tmp_frames_path = current_exe_path
         .parent()
@@ -180,10 +219,7 @@ fn main() {
     let args;
     if Path::new(&args_path).exists() {
         clear().expect("failed to clear screen");
-        println!(
-            "{}",
-            format!("found existing temporary files.").red(),
-        );
+        println!("{}", format!("found existing temporary files.").red(),);
 
         if !Confirm::new().with_prompt("resume upscaling previous video?").default(true).show_default(true).interact().unwrap() {
             if !Confirm::new().with_prompt("all progress will be lost. do you want to continue?").default(true).show_default(true).interact().unwrap() {
@@ -212,10 +248,7 @@ fn main() {
             let serialized_args = serde_json::to_string(&args).unwrap();
             fs::write(&args_path, serialized_args).expect("Unable to write file");
             clear().expect("failed to clear screen");
-            println!(
-                "{}",
-                format!("deleted all temporary files, parsing console input").green()
-            );
+            println!("{}", format!("deleted all temporary files, parsing console input").green());
         } else {
             let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
             args = serde_json::from_str(&args_json).unwrap();
@@ -225,6 +258,18 @@ fn main() {
         }
     } else {
         args = Args::parse();
+
+        let ffmpeg_support = check_ffmpeg();
+        let choosen_codec = &args.codec;
+        println!("{}", choosen_codec);
+        println!("{}", choosen_codec);
+        if ffmpeg_support.contains(choosen_codec) {
+            println!("Codec {} supported by current ffmpeg binary!", choosen_codec);
+        } else {
+            println!("Codec {} not supported by current ffmpeg binary! Supported: {}", choosen_codec, ffmpeg_support);
+            //std::process::exit(1);
+        }
+
         clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
         let serialized_args = serde_json::to_string(&args).unwrap();
         fs::write(&args_path, serialized_args).expect("Unable to write file");
