@@ -12,7 +12,6 @@ use std::str::FromStr;
 use std::{thread, time::Duration};
 use dialoguer::{Confirm};
 use std::time::Instant;
-use execute::Execute;
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -33,7 +32,7 @@ struct Args {
     scale: u8,
 
     /// segment size (in frames)
-    #[clap(short = 'P', long, value_parser, default_value_t = 1000)]
+    #[clap(short = 'P', long = "parts", value_parser, default_value_t = 1000)]
     segmentsize: u32,
 
     /// video constant rate factor (crf: 51-0)
@@ -46,8 +45,8 @@ struct Args {
 
     /// codec encoding parameters (libsvt_hevc, libsvtav1, libx265)
     #[clap(
-        short = 'l',
-        long = "lib",
+        short = 'e',
+        long = "encoder",
         value_parser = codec_validation,
         default_value = "libx265"
     )]
@@ -111,7 +110,7 @@ fn check_ffmpeg() -> String {
     //let output = command.execute_output().unwrap();
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
-    let output = command.execute_output().unwrap();
+    //let output = command.execute_output().unwrap();
 
     let output = Command::new("bin\\ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
@@ -165,7 +164,8 @@ fn check_ffmpeg() -> String {
 
 }
 
-fn create_dirs() -> std::io::Result<()> {
+// fn create_dirs() -> std::io::Result<()> {
+fn create_dirs() -> Result<(), std::io::Error> {
     fs::create_dir_all("temp\\tmp_frames\\")?;
     fs::create_dir_all("temp\\video_parts\\")?;
     fs::create_dir_all("temp\\out_frames\\")?;
@@ -177,7 +177,11 @@ fn main() {
     let current_exe_path = env::current_exe().unwrap();
     let now = Instant::now();
 
-    create_dirs();
+    // Try to create directories needed
+    match create_dirs() {
+        Err(e) => println!("{:?}", e),
+        _ => ()
+    }
 
     let tmp_frames_path = current_exe_path
         .parent()
