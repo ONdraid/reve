@@ -107,19 +107,19 @@ fn codec_validation(s: &str) -> Result<String, String> {
 }
 
 fn extract_realesrgan() {
-    sevenz_rust::decompress_file("data/realesrgan.7z", ".").expect("complete");
+    sevenz_rust::decompress_file("assets/realesrgan-ncnn-vulkan.7z", ".").expect("complete");
 }
 
 fn extract_ffmpeg() {
-    sevenz_rust::decompress_file("data/ffmpeg.7z", ".").expect("complete");
+    sevenz_rust::decompress_file("assets/ffmpeg.7z", ".").expect("complete");
 }
 
 fn extract_mediainfo() {
-    sevenz_rust::decompress_file("data/mediainfo.7z", ".").expect("complete");
+    sevenz_rust::decompress_file("assets/mediainfo.7z", ".").expect("complete");
 }
 
-fn extract_model() {
-    sevenz_rust::decompress_file("data/model.7z", ".").expect("complete");
+fn extract_models() {
+    sevenz_rust::decompress_file("assets/models.7z", ".").expect("complete");
 }
 
 fn check_bins() {
@@ -156,19 +156,13 @@ fn check_bins() {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin exists!").green().bold());
     } else {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
-        extract_model();
+        extract_models();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
         std::process::exit(1);
     }
 }
 
 fn check_ffmpeg() -> String {
-    let mut command = Command::new("ffmpeg.exe");
-    //let output = command.execute_output().unwrap();
-    command.stdout(Stdio::piped());
-    command.stderr(Stdio::piped());
-    //let output = command.execute_output().unwrap();
-
     let output = Command::new("ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
 
@@ -194,7 +188,7 @@ fn check_ffmpeg() -> String {
         libx265: 0.to_string(),
     };
 
-    if stderr.contains("libsvt_hevc") {
+    if stderr.contains("libsvthevc") {
         println!("{}",format!("libsvt_hevc supported!").green());
         valid_codecs.libsvt_hevc = "libsvt_hevc".to_string();
     } else {
@@ -216,7 +210,7 @@ fn check_ffmpeg() -> String {
         valid_codecs.libx265 = "".to_string();
     }
 
-    let codec_support = String::from(format!("{}{}{}", valid_codecs.libsvt_hevc.to_string(), valid_codecs.libsvtav1.to_string(), valid_codecs.libx265.to_string()));
+    let codec_support = String::from(format!("{} {} {}", valid_codecs.libsvt_hevc.to_string(), valid_codecs.libsvtav1.to_string(), valid_codecs.libx265.to_string()));
     return codec_support;
 
 }
@@ -257,6 +251,20 @@ fn main() {
         .unwrap();
 
     let mut args;
+    args = Args::parse();
+
+    let ffmpeg_support = check_ffmpeg();
+    let choosen_codec = &args.codec;
+    //println!("{}", choosen_codec);
+    //println!("{}", choosen_codec);
+    if ffmpeg_support.contains(choosen_codec) {
+        println!("Codec {} supported by current ffmpeg binary!", choosen_codec);
+        //std::process::exit(1);
+    } else {
+        println!("Codec {} not supported by current ffmpeg binary! Supported:{}", choosen_codec, ffmpeg_support);
+        std::process::exit(1);
+    }
+
     if Path::new(&args_path).exists() {
         clear().expect("failed to clear screen");
         println!("{}", "found existing temporary files.".to_string().red());
@@ -324,18 +332,6 @@ fn main() {
     } else {
         // Start new
         args = Args::parse();
-
-        let ffmpeg_support = check_ffmpeg();
-        let choosen_codec = &args.codec;
-        println!("{}", choosen_codec);
-        println!("{}", choosen_codec);
-        if ffmpeg_support.contains(choosen_codec) {
-            println!("Codec {} supported by current ffmpeg binary!", choosen_codec);
-            //std::process::exit(1);
-        } else {
-            println!("Codec {} not supported by current ffmpeg binary! Supported: {}", choosen_codec, ffmpeg_support);
-            //std::process::exit(1);
-        }
 
         input_path = absolute_path(PathBuf::from_str(&args.inputpath).unwrap());
         args.inputpath = input_path.clone();
@@ -488,6 +484,8 @@ fn main() {
 
             merge_handle = thread::spawn(move || {
 
+                // 2022-03-28 07:12 c2d1597
+                // https://github.com/AnimMouse/ffmpeg-autobuild/releases/download/m-2022-03-28-07-12/ffmpeg-c2d1597-651202b-win64-nonfree.7z
                 fs::remove_dir_all(&inpt_dir).unwrap();
                 if &_codec == "libsvt_hevc" {
                     merge_frames_svt_hevc(
@@ -708,6 +706,8 @@ fn upscale_frames(
     Ok(())
 }
 
+// 2022-05-23 17:47 27cffd1
+// https://github.com/AnimMouse/ffmpeg-autobuild/releases/download/m-2022-05-23-17-47/ffmpeg-27cffd1-ff31946-win64-nonfree.7z
 fn merge_frames(
     input_path: &String,
     output_path: &String,
@@ -761,6 +761,8 @@ fn merge_frames(
     Ok(())
 }
 
+// 2022-03-28 07:12 c2d1597
+// https://github.com/AnimMouse/ffmpeg-autobuild/releases/download/m-2022-03-28-07-12/ffmpeg-c2d1597-651202b-win64-nonfree.7z
 fn merge_frames_svt_hevc(
     input_path: &String,
     output_path: &String,
@@ -781,6 +783,12 @@ fn merge_frames_svt_hevc(
             input_path,
             "-c:v",
             codec,
+            "-rc",
+            "0",
+            "-qp",
+            "23",
+            "-tune",
+            "0",
             "-pix_fmt",
             "yuv420p10le",
             "-crf",
