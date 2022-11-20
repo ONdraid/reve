@@ -2,14 +2,13 @@ use clap::Parser;
 use clearscreen::clear;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::{path::Path, thread, time::Duration};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
-use std::{thread, time::Duration};
 use dialoguer::{Confirm};
 use std::time::Instant;
 
@@ -105,6 +104,62 @@ fn codec_validation(s: &str) -> Result<String, String> {
     }
 }
 
+fn extract_realesrgan() {
+    sevenz_rust::decompress_file("data/realesrgan.7z", "bin").expect("complete");
+}
+
+fn extract_ffmpeg() {
+    sevenz_rust::decompress_file("data/ffmpeg.7z", "bin").expect("complete");
+}
+
+fn extract_mediainfo() {
+    sevenz_rust::decompress_file("data/mediainfo.7z", "bin").expect("complete");
+}
+
+fn extract_model() {
+    sevenz_rust::decompress_file("data/model.7z", "bin").expect("complete");
+}
+
+fn check_bins() {
+    let realesrgan = std::path::Path::new("bin\\realesrgan-ncnn-vulkan.exe").exists();
+    let ffmpeg = std::path::Path::new("bin\\ffmpeg.exe").exists();
+    let mediainfo = std::path::Path::new("bin\\mediainfo.exe").exists();
+    let model = std::path::Path::new("bin\\models\\realesr-animevideov3-x2.bin").exists();
+
+    if realesrgan == true {
+        println!("{}", String::from("bin\\realesrgan-ncnn-vulkan.exe exists!").green().bold());
+    } else {
+        println!("{}", String::from("bin\\realesrgan-ncnn-vulkan.exe does not exist!").red().bold());
+        extract_realesrgan();
+        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        std::process::exit(1);
+    }
+    if ffmpeg == true {
+        println!("{}", String::from("bin\\ffmpeg.exe exists!").green().bold());
+    } else {
+        println!("{}", String::from("bin\\ffmpeg.exe does not exist!").red().bold());
+        extract_ffmpeg();
+        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        std::process::exit(1);
+    }
+    if mediainfo == true {
+        println!("{}", String::from("bin\\mediainfo.exe exists!").green().bold());
+    } else {
+        println!("{}", String::from("bin\\mediainfo.exe does not exist!").red().bold());
+        extract_mediainfo();
+        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        std::process::exit(1);
+    }
+    if model == true {
+        println!("{}", String::from("bin\\models\\realesr-animevideov3-x2.bin exists!").green().bold());
+    } else {
+        println!("{}", String::from("bin\\models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
+        extract_model();
+        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        std::process::exit(1);
+    }
+}
+
 fn check_ffmpeg() -> String {
     let mut command = Command::new("bin\\ffmpeg.exe");
     //let output = command.execute_output().unwrap();
@@ -182,6 +237,8 @@ fn main() {
         Err(e) => println!("{:?}", e),
         _ => ()
     }
+
+    check_bins();
 
     let tmp_frames_path = current_exe_path
         .parent()
@@ -269,6 +326,7 @@ fn main() {
         println!("{}", choosen_codec);
         if ffmpeg_support.contains(choosen_codec) {
             println!("Codec {} supported by current ffmpeg binary!", choosen_codec);
+            //std::process::exit(1);
         } else {
             println!("Codec {} not supported by current ffmpeg binary! Supported: {}", choosen_codec, ffmpeg_support);
             //std::process::exit(1);
