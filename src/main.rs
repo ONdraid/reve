@@ -1,16 +1,17 @@
 use clap::Parser;
 use clearscreen::clear;
 use colored::Colorize;
+use dialoguer::Confirm;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use path_clean::PathClean;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::{thread, time::Duration};
-use dialoguer::{Confirm};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -88,28 +89,13 @@ fn preset_validation(s: &str) -> Result<String, String> {
 fn main() {
     let current_exe_path = env::current_exe().unwrap();
 
-    let tmp_frames_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\tmp_frames\\")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let out_frames_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\out_frames\\")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let video_parts_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\video_parts\\")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
+    let input_path;
+    let output_path;
+    let tmp_frames_path = "temp\\tmp_frames\\";
+    let out_frames_path = "temp\\out_frames\\";
+    let video_parts_path = "temp\\video_parts\\";
+    let temp_video_path = "temp\\temp.mp4";
+    let txt_list_path = "temp\\parts.txt";
     let args_path = current_exe_path
         .parent()
         .unwrap()
@@ -117,113 +103,106 @@ fn main() {
         .into_os_string()
         .into_string()
         .unwrap();
-    let txt_list_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\parts.txt")
-        .into_os_string()
-        .into_string()
-        .unwrap();
 
-    let args;
+    let mut args;
     if Path::new(&args_path).exists() {
         clear().expect("failed to clear screen");
-        println!(
-            "{}",
-            format!("found existing temporary files.").red(),
-        );
+        println!("{}", "found existing temporary files.".to_string().red());
 
-        if !Confirm::new().with_prompt("resume upscaling previous video?").default(true).show_default(true).interact().unwrap() {
-            if !Confirm::new().with_prompt("all progress will be lost. do you want to continue?").default(true).show_default(true).interact().unwrap() {
+        if !Confirm::new()
+            .with_prompt("resume upscaling previous video?")
+            .default(true)
+            .show_default(true)
+            .interact()
+            .unwrap()
+        {
+            if !Confirm::new()
+                .with_prompt("all progress will be lost. do you want to continue?")
+                .default(true)
+                .show_default(true)
+                .interact()
+                .unwrap()
+            {
+                // Abort remove
                 std::process::exit(1);
             }
-            clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
-            match fs::remove_file(&txt_list_path) {
-                Ok(()) => "ok",
-                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
-                Err(_e) => "other",
-            };
-            let temp_video_path = current_exe_path
-                .parent()
-                .unwrap()
-                .join("temp\\temp.mp4")
-                .into_os_string()
-                .into_string()
-                .unwrap();
-            match fs::remove_file(&temp_video_path) {
-                Ok(()) => "ok",
-                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
-                Err(_e) => "other",
-            };
-            fs::remove_file(&args_path).expect("Unable to delete file");
+
+            // Remove and start new
             args = Args::parse();
+            input_path = absolute_path(PathBuf::from_str(&args.inputpath).unwrap());
+            args.inputpath = input_path.clone();
+            output_path = absolute_path(PathBuf::from_str(&args.outputpath).unwrap());
+            args.outputpath = output_path.clone();
+            env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
+
+            clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
+            match fs::remove_file(txt_list_path) {
+                Ok(()) => "ok",
+                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+                Err(_e) => "other",
+            };
+            match fs::remove_file(temp_video_path) {
+                Ok(()) => "ok",
+                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+                Err(_e) => "other",
+            };
+
             let serialized_args = serde_json::to_string(&args).unwrap();
+            fs::remove_file(&args_path).expect("Unable to delete file");
             fs::write(&args_path, serialized_args).expect("Unable to write file");
             clear().expect("failed to clear screen");
             println!(
                 "{}",
-                format!("deleted all temporary files, parsing console input").green()
+                "deleted all temporary files, parsing console input"
+                    .to_string()
+                    .green()
             );
         } else {
+            // Resume upscale
             let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
             args = serde_json::from_str(&args_json).unwrap();
-            clear_dirs(&[&tmp_frames_path, &out_frames_path]);
+            input_path = args.inputpath.clone();
+            output_path = args.outputpath.clone();
+            env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
+
+            clear_dirs(&[tmp_frames_path, out_frames_path]);
             clear().expect("failed to clear screen");
-            println!("{}", format!("resuming upscale").green());
+            println!("{}", "resuming upscale".to_string().green());
         }
     } else {
+        // Start new
         args = Args::parse();
-        clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
+        input_path = absolute_path(PathBuf::from_str(&args.inputpath).unwrap());
+        args.inputpath = input_path.clone();
+        output_path = absolute_path(PathBuf::from_str(&args.outputpath).unwrap());
+        args.outputpath = output_path.clone();
+        env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
+
+        clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
         let serialized_args = serde_json::to_string(&args).unwrap();
         fs::write(&args_path, serialized_args).expect("Unable to write file");
     }
 
-    let ffmpeg_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("bin\\ffmpeg")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let mediainfo_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("bin\\mediainfo")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let realesrgan_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("bin\\realesrgan-ncnn-vulkan")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
     // Validation
     {
-        let in_extension = Path::new(&args.inputpath).extension().unwrap();
-        let out_extension = Path::new(&args.outputpath).extension().unwrap();
+        let in_extension = Path::new(&input_path).extension().unwrap();
+        let out_extension = Path::new(&output_path).extension().unwrap();
 
         if in_extension == "mkv" && out_extension != "mkv" {
             clear().expect("failed to clear screen");
             println!(
-                "{}{}{}{}{}{}\n\n{}{}",
-                format!("error").bright_red(),
-                format!(" Invalid value "),
+                "{} Invalid value {} for '{}': mkv file can only be exported as mkv file\n\nFor more information try {}",
+                "error:".to_string().bright_red(),
                 format!("\"{}\"", args.inputpath).yellow(),
-                format!(" for '"),
-                format!("--outputpath <OUTPUTPATH>").yellow(),
-                format!("': mkv file can only be exported as mkv file"),
-                format!("For more information try "),
-                format!("--help").green()
+                "--outputpath <OUTPUTPATH>".to_string().yellow(),
+                "--help".to_string().green()
             );
             std::process::exit(1);
         }
     }
 
-    let total_frame_count = get_frame_count(&mediainfo_path, &args.inputpath);
-    let original_frame_rate = get_frame_rate(&mediainfo_path, &args.inputpath);
+    let total_frame_count = get_frame_count(&input_path);
+    let original_frame_rate = get_frame_rate(&input_path);
 
     // Calculate steps
     let parts_num = (total_frame_count as f32 / args.segmentsize as f32).ceil() as i32;
@@ -246,7 +225,7 @@ fn main() {
             if !p.exists() {
                 unprocessed_indexes.push(i);
             } else {
-                let c = get_frame_count(&mediainfo_path, &p.display().to_string());
+                let c = get_frame_count(&p.display().to_string());
                 if c != args.segmentsize as i32 {
                     fs::remove_file(p).expect("could not remove invalid part, maybe in use?");
                     println!("removed invalid segment file [{}] with {} frame size", i, c);
@@ -268,25 +247,12 @@ fn main() {
             let part_index = unprocessed_indexes[0];
             while join_handlers.len() != 2 && join_handlers.len() < unprocessed_indexes.len() {
                 let index = unprocessed_indexes[join_handlers.len()];
-                let _ffmpeg = ffmpeg_path.clone();
-                let _inpt = args.inputpath.clone();
-                let _outpt = current_exe_path
-                    .parent()
-                    .unwrap()
-                    .join(format!("temp\\tmp_frames\\{}\\frame%08d.png", index))
-                    .into_os_string()
-                    .into_string()
-                    .unwrap();
+                let _inpt = input_path.clone();
+                let _outpt = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
                 let _start_time = ((index * args.segmentsize as i32 - 1) as f32
                     / original_frame_rate.parse::<f32>().unwrap())
                 .to_string();
-                let _index_dir = current_exe_path
-                    .parent()
-                    .unwrap()
-                    .join(format!("temp\\tmp_frames\\{}", index))
-                    .into_os_string()
-                    .into_string()
-                    .unwrap();
+                let _index_dir = format!("temp\\tmp_frames\\{}", index);
                 let _frame_number = if index + 1 == parts_num && last_part_size != 0 {
                     last_part_size
                 } else {
@@ -302,7 +268,6 @@ fn main() {
                 let thread_join_handle = thread::spawn(move || {
                     fs::create_dir(&_index_dir).expect("could not create directory");
                     export_frames(
-                        &_ffmpeg,
                         &_inpt,
                         &_outpt,
                         &_start_time,
@@ -314,25 +279,13 @@ fn main() {
                 join_handlers.push(thread_join_handle);
             }
 
-            let inpt_dir = current_exe_path
-                .parent()
-                .unwrap()
-                .join(format!("temp\\tmp_frames\\{}", part_index))
-                .into_os_string()
-                .into_string()
-                .unwrap();
-            let outpt_dir = current_exe_path
-                .parent()
-                .unwrap()
-                .join(format!("temp\\out_frames\\{}", part_index))
-                .into_os_string()
-                .into_string()
-                .unwrap();
-
             join_handlers
                 .remove(0)
                 .join()
                 .expect("could not handle thread");
+
+            let inpt_dir = format!("temp\\tmp_frames\\{}", part_index);
+            let outpt_dir = format!("temp\\out_frames\\{}", part_index);
 
             fs::create_dir(&outpt_dir).expect("could not create directory");
 
@@ -348,32 +301,13 @@ fn main() {
                         .unwrap().progress_chars("#>-"));
             last_pb = progress_bar.clone();
 
-            upscale_frames(
-                &realesrgan_path,
-                &inpt_dir,
-                &outpt_dir,
-                &args.scale.to_string(),
-                progress_bar,
-            )
-            .expect("could not upscale frames");
+            upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar)
+                .expect("could not upscale frames");
 
             merge_handle.join().unwrap();
 
-            let _ffmpeg = ffmpeg_path.clone();
-            let _inpt = current_exe_path
-                .parent()
-                .unwrap()
-                .join(format!("temp\\out_frames\\{}\\frame%08d.png", part_index))
-                .into_os_string()
-                .into_string()
-                .unwrap();
-            let _outpt = current_exe_path
-                .parent()
-                .unwrap()
-                .join(format!("temp\\video_parts\\{}.mp4", part_index))
-                .into_os_string()
-                .into_string()
-                .unwrap();
+            let _inpt = format!("temp\\out_frames\\{}\\frame%08d.png", part_index);
+            let _outpt = format!("temp\\video_parts\\{}.mp4", part_index);
             let _frmrt = original_frame_rate.clone();
             let _crf = args.crf.clone().to_string();
             let _preset = args.preset.clone();
@@ -388,7 +322,6 @@ fn main() {
             merge_handle = thread::spawn(move || {
                 fs::remove_dir_all(&inpt_dir).unwrap();
                 merge_frames(
-                    &_ffmpeg,
                     &_inpt,
                     &_outpt,
                     &_frmrt,
@@ -408,39 +341,16 @@ fn main() {
     }
 
     // Merge video parts
-    let mut f_content = format!(
-        "file '{}'",
-        current_exe_path
-            .parent()
-            .unwrap()
-            .join("temp\\video_parts\\0.mp4")
-            .into_os_string()
-            .into_string()
-            .unwrap()
-    );
+    let mut f_content = "file 'video_parts\\0.mp4'".to_string();
 
     for part_number in 1..parts_num {
-        let video_part_path = current_exe_path
-            .parent()
-            .unwrap()
-            .join(format!("temp\\video_parts\\{}.mp4", part_number))
-            .into_os_string()
-            .into_string()
-            .unwrap();
+        let video_part_path = format!("video_parts\\{}.mp4", part_number);
         f_content = format!("{}\nfile '{}'", f_content, video_part_path);
     }
 
-    fs::write(&txt_list_path, f_content).expect("Unable to write file");
+    fs::write(txt_list_path, f_content).expect("Unable to write file");
 
     println!("merging video segments");
-    let temp_video_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\temp.mp4")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
     {
         let mut count = 0;
         let p = Path::new(&temp_video_path);
@@ -449,34 +359,29 @@ fn main() {
             if count == 5 {
                 panic!("could not merge segments")
             } else if p.exists() {
-                if std::fs::File::open(p).unwrap().metadata().unwrap().len() == 0 {
+                if fs::File::open(p).unwrap().metadata().unwrap().len() == 0 {
                     count += 1;
                 } else {
                     break;
                 }
             } else {
-                merge_video_parts(&ffmpeg_path, &txt_list_path, &temp_video_path);
+                merge_video_parts(&txt_list_path.to_string(), &temp_video_path.to_string());
                 count += 1;
             }
         }
     }
 
     println!("copying streams");
-    copy_streams(
-        &ffmpeg_path,
-        &temp_video_path,
-        &args.inputpath,
-        &args.outputpath,
-    );
+    copy_streams(&temp_video_path.to_string(), &input_path, &output_path);
 
     // Validation
     {
         let p = Path::new(&temp_video_path);
-        if p.exists() && std::fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
-            clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
-            fs::remove_file(&txt_list_path).expect("Unable to delete file");
+        if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
+            clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
+            fs::remove_file(txt_list_path).expect("Unable to delete file");
             fs::remove_file(&args_path).expect("Unable to delete file");
-            fs::remove_file(&temp_video_path).expect("Unable to delete file");
+            fs::remove_file(temp_video_path).expect("Unable to delete file");
         } else {
             panic!("final file validation error: try running again")
         }
@@ -486,8 +391,8 @@ fn main() {
     println!("done");
 }
 
-fn get_frame_count(bin_path: &String, input_path: &String) -> i32 {
-    let output = Command::new(bin_path)
+fn get_frame_count(input_path: &String) -> i32 {
+    let output = Command::new("mediainfo")
         .arg("--Output=Video;%FrameCount%")
         .arg(input_path)
         .output()
@@ -502,8 +407,8 @@ fn get_frame_count(bin_path: &String, input_path: &String) -> i32 {
     }
 }
 
-fn get_frame_rate(bin_path: &String, input_path: &String) -> String {
-    let output = Command::new(bin_path)
+fn get_frame_rate(input_path: &String) -> String {
+    let output = Command::new("mediainfo")
         .arg("--Output=Video;%FrameRate%")
         .arg(input_path)
         .output()
@@ -512,14 +417,13 @@ fn get_frame_rate(bin_path: &String, input_path: &String) -> String {
 }
 
 fn export_frames(
-    bin_path: &String,
     input_path: &String,
     output_path: &String,
     start_time: &String,
     frame_number: &u32,
     progress_bar: ProgressBar,
 ) -> Result<(), Error> {
-    let stderr = Command::new(bin_path)
+    let stderr = Command::new("ffmpeg")
         .args([
             "-v",
             "verbose",
@@ -561,20 +465,19 @@ fn export_frames(
 }
 
 fn upscale_frames(
-    bin_path: &String,
     input_path: &String,
     output_path: &String,
     scale: &String,
     progress_bar: ProgressBar,
 ) -> Result<(), Error> {
-    let stderr = Command::new(bin_path)
+    let stderr = Command::new("realesrgan-ncnn-vulkan")
         .args([
             "-i",
             input_path,
             "-o",
             output_path,
             "-n",
-            "realesr-animevideov3",
+            "realesr-animevideov3-x2",
             "-s",
             scale,
             "-f",
@@ -602,7 +505,6 @@ fn upscale_frames(
 }
 
 fn merge_frames(
-    bin_path: &String,
     input_path: &String,
     output_path: &String,
     frame_rate: &String,
@@ -611,7 +513,7 @@ fn merge_frames(
     x265_params: &String,
     progress_bar: ProgressBar,
 ) -> Result<(), Error> {
-    let stderr = Command::new(bin_path)
+    let stderr = Command::new("ffmpeg")
         .args([
             "-v",
             "verbose",
@@ -654,12 +556,8 @@ fn merge_frames(
     Ok(())
 }
 
-fn merge_video_parts(
-    bin_path: &String,
-    input_path: &String,
-    output_path: &String,
-) -> std::process::Output {
-    Command::new(bin_path)
+fn merge_video_parts(input_path: &String, output_path: &String) -> std::process::Output {
+    Command::new("ffmpeg")
         .args([
             "-f",
             "concat",
@@ -676,12 +574,11 @@ fn merge_video_parts(
 }
 
 fn copy_streams(
-    bin_path: &String,
     video_input_path: &String,
     copy_input_path: &String,
     output_path: &String,
 ) -> std::process::Output {
-    Command::new(bin_path)
+    Command::new("ffmpeg")
         .args([
             "-i",
             video_input_path,
@@ -698,6 +595,21 @@ fn copy_streams(
         ])
         .output()
         .expect("failed to execute process")
+}
+
+fn absolute_path(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref();
+
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .expect("could not get current path")
+            .join(path)
+    }
+    .clean();
+
+    absolute_path.into_os_string().into_string().unwrap()
 }
 
 fn clear_dirs(dirs: &[&str]) {
