@@ -310,9 +310,8 @@ fn main() {
 
         for _ in 0..unprocessed_indexes.len() {
             let segment = &unprocessed_indexes[0];
+            export_handle.join().unwrap();
             if unprocessed_indexes.len() != 1 {
-                export_handle.join().unwrap();
-
                 let index = unprocessed_indexes[1].index;
                 let _inpt = input_path.clone();
                 let _outpt = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
@@ -342,6 +341,8 @@ fn main() {
                     )
                     .unwrap();
                 });
+            } else {
+                export_handle = thread::spawn(move || {});
             }
 
             let inpt_dir = format!("temp\\tmp_frames\\{}", segment.index);
