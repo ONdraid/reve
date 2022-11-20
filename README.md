@@ -38,7 +38,7 @@ It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) t
 
 ### Portable executable file (REVE)
 
-You can download [Windows](https://github.com/ONdraid/reve/releases/download/v0.0.3/reve-ncnn-vulkan-20222011-windows.zip) **executable file for Intel/AMD/Nvidia GPU**.
+You can download [Windows](https://github.com/ONdraid/reve/releases/latest/download/reve-ncnn-vulkan-windows.zip) **executable file for Intel/AMD/Nvidia GPU**.
 
 This executable file is **portable** and includes all the binaries and models required. No CUDA or PyTorch environment is needed.<br>
 
