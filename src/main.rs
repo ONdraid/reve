@@ -107,55 +107,55 @@ fn codec_validation(s: &str) -> Result<String, String> {
 }
 
 fn extract_realesrgan() {
-    sevenz_rust::decompress_file("data/realesrgan.7z", "bin").expect("complete");
+    sevenz_rust::decompress_file("data/realesrgan.7z", ".").expect("complete");
 }
 
 fn extract_ffmpeg() {
-    sevenz_rust::decompress_file("data/ffmpeg.7z", "bin").expect("complete");
+    sevenz_rust::decompress_file("data/ffmpeg.7z", ".").expect("complete");
 }
 
 fn extract_mediainfo() {
-    sevenz_rust::decompress_file("data/mediainfo.7z", "bin").expect("complete");
+    sevenz_rust::decompress_file("data/mediainfo.7z", ".").expect("complete");
 }
 
 fn extract_model() {
-    sevenz_rust::decompress_file("data/model.7z", "bin").expect("complete");
+    sevenz_rust::decompress_file("data/model.7z", ".").expect("complete");
 }
 
 fn check_bins() {
-    let realesrgan = std::path::Path::new("bin\\realesrgan-ncnn-vulkan.exe").exists();
-    let ffmpeg = std::path::Path::new("bin\\ffmpeg.exe").exists();
-    let mediainfo = std::path::Path::new("bin\\mediainfo.exe").exists();
-    let model = std::path::Path::new("bin\\models\\realesr-animevideov3-x2.bin").exists();
+    let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan.exe").exists();
+    let ffmpeg = std::path::Path::new("ffmpeg.exe").exists();
+    let mediainfo = std::path::Path::new("mediainfo.exe").exists();
+    let model = std::path::Path::new("models\\realesr-animevideov3-x2.bin").exists();
 
     if realesrgan == true {
-        println!("{}", String::from("bin\\realesrgan-ncnn-vulkan.exe exists!").green().bold());
+        println!("{}", String::from("realesrgan-ncnn-vulkan.exe exists!").green().bold());
     } else {
-        println!("{}", String::from("bin\\realesrgan-ncnn-vulkan.exe does not exist!").red().bold());
+        println!("{}", String::from("realesrgan-ncnn-vulkan.exe does not exist!").red().bold());
         extract_realesrgan();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
         std::process::exit(1);
     }
     if ffmpeg == true {
-        println!("{}", String::from("bin\\ffmpeg.exe exists!").green().bold());
+        println!("{}", String::from("ffmpeg.exe exists!").green().bold());
     } else {
-        println!("{}", String::from("bin\\ffmpeg.exe does not exist!").red().bold());
+        println!("{}", String::from("ffmpeg.exe does not exist!").red().bold());
         extract_ffmpeg();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
         std::process::exit(1);
     }
     if mediainfo == true {
-        println!("{}", String::from("bin\\mediainfo.exe exists!").green().bold());
+        println!("{}", String::from("mediainfo.exe exists!").green().bold());
     } else {
-        println!("{}", String::from("bin\\mediainfo.exe does not exist!").red().bold());
+        println!("{}", String::from("mediainfo.exe does not exist!").red().bold());
         extract_mediainfo();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
         std::process::exit(1);
     }
     if model == true {
-        println!("{}", String::from("bin\\models\\realesr-animevideov3-x2.bin exists!").green().bold());
+        println!("{}", String::from("models\\realesr-animevideov3-x2.bin exists!").green().bold());
     } else {
-        println!("{}", String::from("bin\\models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
+        println!("{}", String::from("models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
         extract_model();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
         std::process::exit(1);
@@ -163,13 +163,13 @@ fn check_bins() {
 }
 
 fn check_ffmpeg() -> String {
-    let mut command = Command::new("bin\\ffmpeg.exe");
+    let mut command = Command::new("ffmpeg.exe");
     //let output = command.execute_output().unwrap();
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     //let output = command.execute_output().unwrap();
 
-    let output = Command::new("bin\\ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
+    let output = Command::new("ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
 
     struct ValidCodecs {
@@ -226,7 +226,6 @@ fn create_dirs() -> Result<(), std::io::Error> {
     fs::create_dir_all("temp\\tmp_frames\\")?;
     fs::create_dir_all("temp\\video_parts\\")?;
     fs::create_dir_all("temp\\out_frames\\")?;
-    fs::create_dir_all("bin\\")?;
     Ok(())
 }
 
@@ -528,7 +527,6 @@ fn main() {
                     .unwrap();
                     fs::remove_dir_all(&outpt_dir).unwrap();
                 }
-                fs::remove_dir_all(&outpt_dir).unwrap();
             });
 
             unprocessed_indexes.remove(0);
