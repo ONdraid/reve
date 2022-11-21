@@ -63,6 +63,11 @@ struct Args {
     x265params: String,
 }
 
+struct Segment {
+    index: u32,
+    size: u32,
+}
+
 fn input_validation(s: &str) -> Result<String, String> {
     let p = Path::new(s);
     if !p.exists() {
@@ -367,7 +372,13 @@ fn main() {
 
     // Calculate steps
     let parts_num = (total_frame_count as f32 / args.segmentsize as f32).ceil() as i32;
-    let last_part_size = total_frame_count % args.segmentsize as i32;
+    let last_part_size = (total_frame_count % args.segmentsize) as u32;
+    let last_part_size = if last_part_size == 0 {
+        args.segmentsize
+    } else {
+        last_part_size
+    };
+
     let _codec = args.codec.clone();
     clear().expect("failed to clear screen");
     println!(
@@ -384,50 +395,105 @@ fn main() {
         for i in 0..parts_num {
             let n = format!("{}\\{}.mp4", video_parts_path, i);
             let p = Path::new(&n);
+            let frame_number = if i + 1 == parts_num {
+                last_part_size
+            } else {
+                args.segmentsize
+            };
             if !p.exists() {
-                unprocessed_indexes.push(i);
+                unprocessed_indexes.push(Segment {
+                    index: i as u32,
+                    size: frame_number as u32,
+                });
             } else {
                 let c = get_frame_count(&p.display().to_string());
-                if c != args.segmentsize as i32 {
+                if c != frame_number {
                     fs::remove_file(p).expect("could not remove invalid part, maybe in use?");
                     println!("removed invalid segment file [{}] with {} frame size", i, c);
-                    unprocessed_indexes.push(i);
+                    unprocessed_indexes.push(Segment {
+                        index: i as u32,
+                        size: frame_number as u32,
+                    });
                 }
             }
         }
 
-        let mut join_handlers = Vec::new();
+        let mut export_handle = thread::spawn(move || {});
         let mut merge_handle = thread::spawn(move || {});
+        let info_style = "[info][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processed segments       eta: {eta:<7}";
+        let expo_style = "[expo][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} exporting segment        {per_sec:<12}";
+        let upsc_style = "[upsc][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} upscaling segment        {per_sec:<12}";
+        let merg_style = "[merg][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} merging segment          {per_sec:<12}";
+
         let m = MultiProgress::new();
         let pb = m.add(ProgressBar::new(parts_num as u64));
-        pb.set_style(ProgressStyle::default_bar()
-          .template("[info][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processed segments       eta: {eta:<7}")
-          .unwrap().progress_chars("#>-"));
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(info_style)
+                .unwrap()
+                .progress_chars("#>-"),
+        );
         let mut last_pb = pb.clone();
 
-        while !unprocessed_indexes.is_empty() {
-            let part_index = unprocessed_indexes[0];
-            while join_handlers.len() != 2 && join_handlers.len() < unprocessed_indexes.len() {
-                let index = unprocessed_indexes[join_handlers.len()];
+        // Initial export
+        if !unprocessed_indexes.is_empty() {
+            let index = unprocessed_indexes[0].index;
+            let _inpt = input_path.clone();
+            let _outpt = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
+            let _start_time = if index == 0 {
+                String::from("0")
+            } else {
+                ((index * args.segmentsize - 1) as f32
+                    / original_frame_rate.parse::<f32>().unwrap())
+                .to_string()
+            };
+            let _index_dir = format!("temp\\tmp_frames\\{}", index);
+            let _frame_number = unprocessed_indexes[0].size;
+
+            let progress_bar = m.insert_after(&last_pb, ProgressBar::new(_frame_number as u64));
+            progress_bar.set_style(
+                ProgressStyle::default_bar()
+                    .template(expo_style)
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            last_pb = progress_bar.clone();
+
+            fs::create_dir(&_index_dir).expect("could not create directory");
+            export_frames(
+                &input_path,
+                &_outpt,
+                &_start_time,
+                &(_frame_number as u32),
+                progress_bar,
+            )
+            .unwrap();
+            m.clear().unwrap();
+        }
+
+        for _ in 0..unprocessed_indexes.len() {
+            let segment = &unprocessed_indexes[0];
+            export_handle.join().unwrap();
+            if unprocessed_indexes.len() != 1 {
+                let index = unprocessed_indexes[1].index;
                 let _inpt = input_path.clone();
                 let _outpt = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
-                let _start_time = ((index * args.segmentsize as i32 - 1) as f32
+                let _start_time = ((index * args.segmentsize - 1) as f32
                     / original_frame_rate.parse::<f32>().unwrap())
                 .to_string();
                 let _index_dir = format!("temp\\tmp_frames\\{}", index);
-                let _frame_number = if index + 1 == parts_num && last_part_size != 0 {
-                    last_part_size
-                } else {
-                    args.segmentsize as i32
-                };
+                let _frame_number = unprocessed_indexes[1].size;
 
                 let progress_bar = m.insert_after(&last_pb, ProgressBar::new(_frame_number as u64));
-                progress_bar.set_style(ProgressStyle::default_bar()
-                            .template("[expo][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} exporting segment        {per_sec:<12}")
-                            .unwrap().progress_chars("#>-"));
+                progress_bar.set_style(
+                    ProgressStyle::default_bar()
+                        .template(expo_style)
+                        .unwrap()
+                        .progress_chars("#>-"),
+                );
                 last_pb = progress_bar.clone();
 
-                let thread_join_handle = thread::spawn(move || {
+                export_handle = thread::spawn(move || {
                     fs::create_dir(&_index_dir).expect("could not create directory");
                     export_frames(
                         &_inpt,
@@ -438,29 +504,24 @@ fn main() {
                     )
                     .unwrap();
                 });
-                join_handlers.push(thread_join_handle);
+            } else {
+                export_handle = thread::spawn(move || {});
             }
 
-            join_handlers
-                .remove(0)
-                .join()
-                .expect("could not handle thread");
-
-            let inpt_dir = format!("temp\\tmp_frames\\{}", part_index);
-            let outpt_dir = format!("temp\\out_frames\\{}", part_index);
+            let inpt_dir = format!("temp\\tmp_frames\\{}", segment.index);
+            let outpt_dir = format!("temp\\out_frames\\{}", segment.index);
 
             fs::create_dir(&outpt_dir).expect("could not create directory");
 
-            let frame_number = if part_index + 1 == parts_num && last_part_size != 0 {
-                last_part_size
-            } else {
-                args.segmentsize as i32
-            };
+            let frame_number = unprocessed_indexes[0].size;
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
-            progress_bar.set_style(ProgressStyle::default_bar()
-                        .template("[upsc][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} upscaling segment        {per_sec:<12}")
-                        .unwrap().progress_chars("#>-"));
+            progress_bar.set_style(
+                ProgressStyle::default_bar()
+                    .template(upsc_style)
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
             last_pb = progress_bar.clone();
 
             upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar)
@@ -469,17 +530,20 @@ fn main() {
             merge_handle.join().unwrap();
 
             let _codec = args.codec.clone();
-            let _inpt = format!("temp\\out_frames\\{}\\frame%08d.png", part_index);
-            let _outpt = format!("temp\\video_parts\\{}.mp4", part_index);
+            let _inpt = format!("temp\\out_frames\\{}\\frame%08d.png", segment.index);
+            let _outpt = format!("temp\\video_parts\\{}.mp4", segment.index);
             let _frmrt = original_frame_rate.clone();
             let _crf = args.crf.clone().to_string();
             let _preset = args.preset.clone();
             let _x265_params = args.x265params.clone();
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
-            progress_bar.set_style(ProgressStyle::default_bar()
-                        .template("[merg][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} merging segment          {per_sec:<12}")
-                        .unwrap().progress_chars("#>-"));
+            progress_bar.set_style(
+                ProgressStyle::default_bar()
+                    .template(merg_style)
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
             last_pb = progress_bar.clone();
 
             merge_handle = thread::spawn(move || {
@@ -531,6 +595,7 @@ fn main() {
             pb.set_position((parts_num - unprocessed_indexes.len() as i32 - 1) as u64);
         }
         merge_handle.join().unwrap();
+        m.clear().unwrap();
     }
 
     // Merge video parts
@@ -593,7 +658,7 @@ fn main() {
     println!("done {:?} in {}h:{}m:{}s", ancestors, hours, minutes, seconds);
 }
 
-fn get_frame_count(input_path: &String) -> i32 {
+fn get_frame_count(input_path: &String) -> u32 {
     let output = Command::new("mediainfo")
         .arg("--Output=Video;%FrameCount%")
         .arg(input_path)
@@ -602,7 +667,7 @@ fn get_frame_count(input_path: &String) -> i32 {
     let r = String::from_utf8(output.stdout)
         .unwrap()
         .trim()
-        .parse::<i32>();
+        .parse::<u32>();
     match r {
         Err(_e) => 0,
         _ => r.unwrap(),
