@@ -139,7 +139,6 @@ fn check_bins() {
         println!("{}", String::from("realesrgan-ncnn-vulkan.exe does not exist!").red().bold());
         extract_realesrgan();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
-        std::process::exit(1);
     }
     if ffmpeg == true {
         println!("{}", String::from("ffmpeg.exe exists!").green().bold());
@@ -147,7 +146,6 @@ fn check_bins() {
         println!("{}", String::from("ffmpeg.exe does not exist!").red().bold());
         extract_ffmpeg();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
-        std::process::exit(1);
     }
     if mediainfo == true {
         println!("{}", String::from("mediainfo.exe exists!").green().bold());
@@ -155,7 +153,6 @@ fn check_bins() {
         println!("{}", String::from("mediainfo.exe does not exist!").red().bold());
         extract_mediainfo();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
-        std::process::exit(1);
     }
     if model == true {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin exists!").green().bold());
@@ -163,7 +160,6 @@ fn check_bins() {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
         extract_models();
         println!("{}", String::from("Extracted to bin folder.").green().bold());
-        std::process::exit(1);
     }
 }
 
@@ -260,13 +256,11 @@ fn main() {
 
     let ffmpeg_support = check_ffmpeg();
     let choosen_codec = &args.codec;
-    //println!("{}", choosen_codec);
-    //println!("{}", choosen_codec);
     if ffmpeg_support.contains(choosen_codec) {
         println!("Codec {} supported by current ffmpeg binary!", choosen_codec);
-        //std::process::exit(1);
     } else {
         println!("Codec {} not supported by current ffmpeg binary! Supported:{}", choosen_codec, ffmpeg_support);
+        // TODO implement fallback to supported codec
         std::process::exit(1);
     }
 
@@ -460,6 +454,9 @@ fn main() {
             last_pb = progress_bar.clone();
 
             fs::create_dir(&_index_dir).expect("could not create directory");
+            // TODO LINUX: /dev/shm to export the frames
+            // https://github.com/PauMAVA/cargo-ramdisk
+            // Windows doesn't really have something native like a ramdisk sadly
             export_frames(
                 &input_path,
                 &_outpt,
