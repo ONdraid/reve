@@ -111,60 +111,43 @@ fn codec_validation(s: &str) -> Result<String, String> {
     }
 }
 
-fn extract_realesrgan() {
-    sevenz_rust::decompress_file("assets/realesrgan-ncnn-vulkan.7z", ".").expect("complete");
-}
-
-fn extract_ffmpeg() {
-    sevenz_rust::decompress_file("assets/ffmpeg.7z", ".").expect("complete");
-}
-
-fn extract_mediainfo() {
-    sevenz_rust::decompress_file("assets/mediainfo.7z", ".").expect("complete");
-}
-
-fn extract_models() {
-    sevenz_rust::decompress_file("assets/models.7z", ".").expect("complete");
-}
-
 fn check_bins() {
-    let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan.exe").exists();
-    let ffmpeg = std::path::Path::new("ffmpeg.exe").exists();
-    let mediainfo = std::path::Path::new("mediainfo.exe").exists();
+    let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan").exists();
+    let ffmpeg = std::path::Path::new("ffmpeg").exists();
+    let mediainfo = std::path::Path::new("mediainfo").exists();
+    #[cfg(target_os = "windows")]    
     let model = std::path::Path::new("models\\realesr-animevideov3-x2.bin").exists();
+    #[cfg(target_os = "linux")]
+    let model = std::path::Path::new("models/realesr-animevideov3-x2.bin").exists();
 
     if realesrgan == true {
-        println!("{}", String::from("realesrgan-ncnn-vulkan.exe exists!").green().bold());
+        println!("{}", String::from("realesrgan-ncnn-vulkan exists!").green().bold());
     } else {
-        println!("{}", String::from("realesrgan-ncnn-vulkan.exe does not exist!").red().bold());
-        extract_realesrgan();
-        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        println!("{}", String::from("realesrgan-ncnn-vulkan does not exist!").red().bold());
+        std::process::exit(1);
     }
     if ffmpeg == true {
-        println!("{}", String::from("ffmpeg.exe exists!").green().bold());
+        println!("{}", String::from("ffmpeg exists!").green().bold());
     } else {
-        println!("{}", String::from("ffmpeg.exe does not exist!").red().bold());
-        extract_ffmpeg();
-        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        let ffmpeg_path = Command::new("ffmpeg");
+        assert_eq!(ffmpeg_path.get_program(), "ffmpeg");
     }
     if mediainfo == true {
-        println!("{}", String::from("mediainfo.exe exists!").green().bold());
+        println!("{}", String::from("mediainfo exists!").green().bold());
     } else {
-        println!("{}", String::from("mediainfo.exe does not exist!").red().bold());
-        extract_mediainfo();
-        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        let ffmpeg_path = Command::new("mediainfo");
+        assert_eq!(ffmpeg_path.get_program(), "mediainfo");
     }
     if model == true {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin exists!").green().bold());
     } else {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
-        extract_models();
-        println!("{}", String::from("Extracted to bin folder.").green().bold());
+        std::process::exit(1);
     }
 }
 
 fn check_ffmpeg() -> String {
-    let output = Command::new("ffmpeg.exe").stdout(Stdio::piped()).output().unwrap();
+    let output = Command::new("ffmpeg").stdout(Stdio::piped()).output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
 
     struct ValidCodecs {
@@ -224,6 +207,19 @@ fn create_dirs() -> Result<(), std::io::Error> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn dev_shm_exists() -> Result<(), std::io::Error> {
+    let path = "/dev/shm";
+    let b: bool = Path::new(path).is_dir();
+
+    if b == true {
+        fs::create_dir_all("/dev/shm/tmp_frames")?;
+        fs::create_dir_all("/dev/shm/out_frames")?;
+        fs::create_dir_all("/dev/shm/video_parts")?;
+    }
+    Ok(())
+}
+
 fn main() {
     let current_exe_path = env::current_exe().unwrap();
     let now = Instant::now();
@@ -236,20 +232,44 @@ fn main() {
 
     check_bins();
 
+    #[cfg(target_os = "linux")]
+    dev_shm_exists();
+
     let input_path;
     let output_path;
+
+    #[cfg(target_os = "windows")]
     let tmp_frames_path = "temp\\tmp_frames\\";
     let out_frames_path = "temp\\out_frames\\";
     let video_parts_path = "temp\\video_parts\\";
     let temp_video_path = "temp\\temp.mp4";
     let txt_list_path = "temp\\parts.txt";
     let args_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\args.temp")
-        .into_os_string()
-        .into_string()
-        .unwrap();
+    .parent()
+    .unwrap()
+    .join("temp\\args.temp")
+    .into_os_string()
+    .into_string()
+    .unwrap();
+
+    #[cfg(target_os = "linux")]
+    let tmp_frames_path = "/dev/shm/tmp_frames/";
+    #[cfg(target_os = "linux")]
+    let out_frames_path = "/dev/shm/out_frames/";
+    #[cfg(target_os = "linux")]
+    let video_parts_path = "/dev/shm/video_parts/";
+    #[cfg(target_os = "linux")]
+    let temp_video_path = "/dev/shm/temp.mp4";
+    #[cfg(target_os = "linux")]
+    let txt_list_path = "/dev/shm/parts.txt";
+    #[cfg(target_os = "linux")]
+    let args_path = current_exe_path
+    .parent()
+    .unwrap()
+    .join("/dev/shm/args.temp")
+    .into_os_string()
+    .into_string()
+    .unwrap();
 
     let mut args;
     args = Args::parse();
@@ -433,6 +453,9 @@ fn main() {
         if !unprocessed_indexes.is_empty() {
             let index = unprocessed_indexes[0].index;
             let _inpt = input_path.clone();
+            #[cfg(target_os = "linux")]
+            let _outpt = format!("/dev/shm/tmp_frames/{}/frame%08d.png", index);
+            #[cfg(target_os = "windows")]
             let _outpt = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
             let _start_time = if index == 0 {
                 String::from("0")
@@ -441,6 +464,9 @@ fn main() {
                     / original_frame_rate.parse::<f32>().unwrap())
                 .to_string()
             };
+            #[cfg(target_os = "linux")]
+            let _index_dir = format!("/dev/shm/tmp_frames/{}", index);
+            #[cfg(target_os = "windows")]
             let _index_dir = format!("temp\\tmp_frames\\{}", index);
             let _frame_number = unprocessed_indexes[0].size;
 
@@ -453,7 +479,9 @@ fn main() {
             );
             last_pb = progress_bar.clone();
 
+            #[cfg(target_os = "windows")]
             fs::create_dir(&_index_dir).expect("could not create directory");
+
             // TODO LINUX: /dev/shm to export the frames
             // https://github.com/PauMAVA/cargo-ramdisk
             // Windows doesn't really have something native like a ramdisk sadly
@@ -474,10 +502,16 @@ fn main() {
             if unprocessed_indexes.len() != 1 {
                 let index = unprocessed_indexes[1].index;
                 let _inpt = input_path.clone();
+                #[cfg(target_os = "linux")]
+                let _outpt = format!("/dev/shm/tmp_frames/{}/frame%08d.png", index);
+                #[cfg(target_os = "windows")]
                 let _outpt = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
                 let _start_time = ((index * args.segmentsize - 1) as f32
                     / original_frame_rate.parse::<f32>().unwrap())
                 .to_string();
+                #[cfg(target_os = "linux")]
+                let _index_dir = format!("/dev/shm/tmp_frames/{}", index);
+                #[cfg(target_os = "windows")]
                 let _index_dir = format!("temp\\tmp_frames\\{}", index);
                 let _frame_number = unprocessed_indexes[1].size;
 
@@ -505,7 +539,13 @@ fn main() {
                 export_handle = thread::spawn(move || {});
             }
 
+            #[cfg(target_os = "linux")]
+            let inpt_dir = format!("/dev/shm/tmp_frames/{}", segment.index);
+            #[cfg(target_os = "linux")]
+            let outpt_dir = format!("/dev/shm/out_frames/{}", segment.index);
+            #[cfg(target_os = "windows")]
             let inpt_dir = format!("temp\\tmp_frames\\{}", segment.index);
+            #[cfg(target_os = "windows")]
             let outpt_dir = format!("temp\\out_frames\\{}", segment.index);
 
             fs::create_dir(&outpt_dir).expect("could not create directory");
@@ -521,13 +561,20 @@ fn main() {
             );
             last_pb = progress_bar.clone();
 
+            println!("{}{}", &inpt_dir, &outpt_dir);
             upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar)
                 .expect("could not upscale frames");
 
             merge_handle.join().unwrap();
 
             let _codec = args.codec.clone();
+            #[cfg(target_os = "linux")]
+            let _inpt = format!("/dev/shm/out_frames/{}/frame%08d.png", segment.index);
+            #[cfg(target_os = "linux")]
+            let _outpt = format!("/dev/shm/video_parts/{}.mp4", segment.index);
+            #[cfg(target_os = "windows")]
             let _inpt = format!("temp\\out_frames\\{}\\frame%08d.png", segment.index);
+            #[cfg(target_os = "windows")]
             let _outpt = format!("temp\\video_parts\\{}.mp4", segment.index);
             let _frmrt = original_frame_rate.clone();
             let _crf = args.crf.clone().to_string();
@@ -596,9 +643,15 @@ fn main() {
     }
 
     // Merge video parts
+    #[cfg(target_os = "linux")]
+    let mut f_content = "file 'video_parts/0.mp4'".to_string();
+    #[cfg(target_os = "windows")]
     let mut f_content = "file 'video_parts\\0.mp4'".to_string();
 
     for part_number in 1..parts_num {
+        #[cfg(target_os = "linux")]
+        let video_part_path = format!("video_parts/{}.mp4", part_number);
+        #[cfg(target_os = "windows")]
         let video_part_path = format!("video_parts\\{}.mp4", part_number);
         f_content = format!("{}\nfile '{}'", f_content, video_part_path);
     }
