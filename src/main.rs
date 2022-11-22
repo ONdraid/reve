@@ -747,6 +747,7 @@ fn export_frames(
     frame_number: &u32,
     progress_bar: ProgressBar,
 ) -> Result<(), Error> {
+    println!("{}{}{}", &frame_number.to_string(), output_path, input_path);
     let stderr = Command::new("ffmpeg")
         .args([
             "-v",
