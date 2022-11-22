@@ -112,8 +112,17 @@ fn codec_validation(s: &str) -> Result<String, String> {
 }
 
 fn check_bins() {
+    #[cfg(target_os = "windows")]
+    let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan.exe").exists();
+    #[cfg(target_os = "linux")]
     let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan").exists();
+    #[cfg(target_os = "windows")]
+    let ffmpeg = std::path::Path::new("ffmpeg.exe").exists();
+    #[cfg(target_os = "linux")]
     let ffmpeg = std::path::Path::new("ffmpeg").exists();
+    #[cfg(target_os = "windows")]
+    let mediainfo = std::path::Path::new("mediainfo.exe").exists();
+    #[cfg(target_os = "linux")]
     let mediainfo = std::path::Path::new("mediainfo").exists();
     #[cfg(target_os = "windows")]    
     let model = std::path::Path::new("models\\realesr-animevideov3-x2.bin").exists();
@@ -479,7 +488,6 @@ fn main() {
             );
             last_pb = progress_bar.clone();
 
-            #[cfg(target_os = "windows")]
             fs::create_dir(&_index_dir).expect("could not create directory");
 
             // TODO LINUX: /dev/shm to export the frames
@@ -561,7 +569,6 @@ fn main() {
             );
             last_pb = progress_bar.clone();
 
-            println!("{}{}", &inpt_dir, &outpt_dir);
             upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar)
                 .expect("could not upscale frames");
 
@@ -787,6 +794,27 @@ fn upscale_frames(
     scale: &String,
     progress_bar: ProgressBar,
 ) -> Result<(), Error> {
+    #[cfg(target_os = "linux")]
+    let stderr = Command::new("./realesrgan-ncnn-vulkan")
+        .args([
+            "-i",
+            input_path,
+            "-o",
+            output_path,
+            "-n",
+            "realesr-animevideov3-x2",
+            "-s",
+            scale,
+            "-f",
+            "png",
+            "-v",
+        ])
+        .stderr(Stdio::piped())
+        .spawn()?
+        .stderr
+        .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture standard output."))?;
+
+    #[cfg(target_os = "windows")]
     let stderr = Command::new("realesrgan-ncnn-vulkan")
         .args([
             "-i",
