@@ -84,6 +84,7 @@ fn output_validation(s: &str) -> Result<String, String> {
     if p.exists() {
         return Err(String::from_str("output path already exists").unwrap());
     }
+
     match p.extension().unwrap().to_str().unwrap() {
         "mp4" | "mkv" | "avi" => Ok(s.to_string()),
         _ => Err(String::from_str("valid output formats: mp4/mkv/avi").unwrap()),
@@ -410,7 +411,7 @@ fn main() {
             "total segments: {}, last segment size: {}, codec: {} (ctrl+c to exit)",
             parts_num, last_part_size, _codec
         )
-        .red()
+        .yellow()
     );
 
     {
@@ -929,7 +930,7 @@ fn merge_frames_svt_hevc(
             "-rc",
             "0",
             "-qp",
-            "23",
+            crf,
             "-tune",
             "0",
             "-pix_fmt",
@@ -1028,20 +1029,24 @@ fn copy_streams(
     copy_input_path: &String,
     output_path: &String,
 ) -> std::process::Output {
+    let mut output_path_temp = PathBuf::from(output_path);
+    output_path_temp.set_extension("mp4");
+
     Command::new("ffmpeg")
         .args([
             "-i",
             video_input_path,
-            "-vn",
             "-i",
             copy_input_path,
-            "-c",
-            "copy",
             "-map",
             "0:v",
             "-map",
             "1",
-            output_path,
+            "-map",
+            "-1:v",
+            "-c",
+            "copy",
+            &output_path_temp.to_string_lossy(),
         ])
         .output()
         .expect("failed to execute process")
