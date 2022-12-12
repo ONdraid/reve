@@ -309,9 +309,9 @@ fn main() {
         //Check if previous file is used, if yes, continue upscale without asking
         let old_args_json = fs::read_to_string(&args_path).expect("Unable to read file");
         let old_args: Args = serde_json::from_str(&old_args_json).unwrap();
-        let previous_file = &old_args.inputpath;
-        if old_args.inputpath.contains(previous_file) {
-            println!("Same file! '{}' Resuming...", previous_file);
+        let previous_file = Path::new(&old_args.inputpath);
+        if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) {
+            println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
             // Resume upscale
             let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
             args = serde_json::from_str(&args_json).unwrap();
@@ -323,6 +323,34 @@ fn main() {
             clear().expect("failed to clear screen");
             println!("{}", "resuming upscale".to_string().green());
             //exit(1);
+        } else {
+            // Remove and start new
+            args = Args::parse();
+
+            env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
+
+            clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
+            match fs::remove_file(txt_list_path) {
+                Ok(()) => "ok",
+                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+                Err(_e) => "other",
+            };
+            match fs::remove_file(&temp_video_path) {
+                Ok(()) => "ok",
+                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+                Err(_e) => "other",
+            };
+
+            let serialized_args = serde_json::to_string(&args).unwrap();
+            //fs::remove_file(&args_path).expect("Unable to delete file");
+            fs::write(&args_path, serialized_args).expect("Unable to write file");
+            clear().expect("failed to clear screen");
+            println!(
+                "{}",
+                "deleted all temporary files, parsing console input"
+                    .to_string()
+                    .green()
+            );
         }
     } else {
         // Remove and start new
@@ -343,7 +371,7 @@ fn main() {
         };
 
         let serialized_args = serde_json::to_string(&args).unwrap();
-        fs::remove_file(&args_path).expect("Unable to delete file");
+        //fs::remove_file(&args_path).expect("Unable to delete file");
         fs::write(&args_path, serialized_args).expect("Unable to write file");
         clear().expect("failed to clear screen");
         println!(
@@ -655,8 +683,57 @@ fn main() {
         }
     }
 
+/*     let mut ffmpeg_args: String = "".to_string();
+    let audio_streams = get_audio_streams(&args.inputpath);
+    let subtitle_streams = get_subtitle_streams(&args.inputpath);
+    let chapters = get_chapters(&args.inputpath); */
+
+    //println!("{} {} {}", audio_streams, subtitle_streams, chapters);
+
+/*     if audio_streams > 0 {
+        //println!("{}", audio_streams);
+        ffmpeg_args += format!("-map 1:a ").to_string().as_str();
+    }
+    if subtitle_streams > 0 {
+        //println!("{}", subtitle_streams);
+        ffmpeg_args += format!("-map 1:s ").to_string().as_str();
+    }
+    if chapters > 0 {
+        //println!("{}", chapters);
+        ffmpeg_args += format!("-map_chapters 1").to_string().as_str();
+    } */
+
+    //println!("ffmpeg.exe -i {} -i {} -map 0:v {} -map -1:v -c copy {}", &temp_video_path, &args.inputpath, ffmpeg_args, output_path);
+    //println!("ffmpeg args:{}", ffmpeg_args);
+
+    //exit(1);
+
+/*     if temp_video_path.contains(char::is_whitespace) {
+        format!("\'{}\'", temp_video_path);
+    }
+    if args.inputpath.contains(char::is_whitespace) {
+        format!("\'{}\'", args.inputpath);
+    }
+
+    println!("\'{}\'", temp_video_path);
+    println!("\'{}\'", args.inputpath); */
+
+    //exit(1);
+
     println!("copying streams");
     copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
+    //copy_streams(&format!("\'{}\'", temp_video_path).to_string(), &format!("\'{}\'", args.inputpath), &output_path, &ffmpeg_args);
+
+/*     println!("{}", &temp_video_path);
+    println!("{}", &args.inputpath);
+    println!("{}", &output_path);
+    exit(1); */
+
+    copy_streams(&temp_video_path.to_string(), &input_path, &output_path);
+    //let command = format!("-i {} -i {} -map 0:v -map 1 -map -1:v -c copy {}", &temp_video_path, &args.inputpath, output_path);
+    //copy_streams(&command);
+
+    //copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
 
     // Validation
     {
@@ -679,4 +756,5 @@ fn main() {
 
     let ancestors = Path::new(& args.inputpath).file_name().unwrap();
     println!("done {:?} to {:?} in {}h:{}m:{}s", ancestors, done_output, hours, minutes, seconds);
+    //println!("ffmpeg.exe -i {} -i {} -map 0:v -map 1 -map -1:v -c copy {}", &temp_video_path, &args.inputpath, output_path);
 }
