@@ -131,7 +131,10 @@ fn output_validation(s: &str) -> Result<String, String> {
         exit(1);
     }
     else {
-        return Ok(String::from_str(s).unwrap());
+        match p.extension().unwrap().to_str().unwrap() {
+            "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+            _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
+        }
     }
 }
 
@@ -686,11 +689,11 @@ fn main() {
 /*     let mut ffmpeg_args: String = "".to_string();
     let audio_streams = get_audio_streams(&args.inputpath);
     let subtitle_streams = get_subtitle_streams(&args.inputpath);
-    let chapters = get_chapters(&args.inputpath); */
+    let chapters = get_chapters(&args.inputpath);
 
     //println!("{} {} {}", audio_streams, subtitle_streams, chapters);
 
-/*     if audio_streams > 0 {
+    if audio_streams > 0 {
         //println!("{}", audio_streams);
         ffmpeg_args += format!("-map 1:a ").to_string().as_str();
     }
@@ -713,23 +716,23 @@ fn main() {
     }
     if args.inputpath.contains(char::is_whitespace) {
         format!("\'{}\'", args.inputpath);
-    }
+    } */
 
-    println!("\'{}\'", temp_video_path);
+/*     println!("\'{}\'", temp_video_path);
     println!("\'{}\'", args.inputpath); */
 
     //exit(1);
 
     println!("copying streams");
     copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
-    //copy_streams(&format!("\'{}\'", temp_video_path).to_string(), &format!("\'{}\'", args.inputpath), &output_path, &ffmpeg_args);
+    //copy_streams(&format!("\'{}\'", temp_video_path).to_string(), &args.inputpath, &output_path, &ffmpeg_args);
 
 /*     println!("{}", &temp_video_path);
     println!("{}", &args.inputpath);
     println!("{}", &output_path);
     exit(1); */
 
-    copy_streams(&temp_video_path.to_string(), &input_path, &output_path);
+    //copy_streams(&temp_video_path.to_string(), &input_path, &output_path);
     //let command = format!("-i {} -i {} -map 0:v -map 1 -map -1:v -c copy {}", &temp_video_path, &args.inputpath, output_path);
     //copy_streams(&command);
 
