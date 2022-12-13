@@ -723,9 +723,33 @@ fn main() {
 
     //exit(1);
 
-    println!("copying streams");
-    copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
-    //copy_streams(&format!("\'{}\'", temp_video_path).to_string(), &args.inputpath, &output_path, &ffmpeg_args);
+    //Check if there is any invalid bin data in the input file
+    let bin_data = get_bin_data(&args.inputpath);
+    if bin_data != "" {
+        println!("invalid data at index: {}, skipping this one", bin_data);
+/*         let mut ffmpeg_args: String = "".to_string();
+        let audio_streams = get_audio_streams(&args.inputpath);
+        let subtitle_streams = get_subtitle_streams(&args.inputpath);
+        let chapters = get_chapters(&args.inputpath);
+        if audio_streams > 0 {
+            ffmpeg_args += format!("-map 1:a ").to_string().as_str();
+        }
+        if subtitle_streams > 0 {
+            ffmpeg_args += format!("-map 1:s ").to_string().as_str();
+        }
+        if chapters > 0 {
+            ffmpeg_args += format!("-map_chapters 1").to_string().as_str();
+        } */
+        println!("copying streams");
+        //let ffmpeg_output = copy_streams_args(&temp_video_path.to_string(), &args.inputpath, &output_path, &ffmpeg_args);
+        copy_streams_no_bin_data(&temp_video_path.to_string(), &args.inputpath, &output_path);
+        //println!("ffmpeg.exe -i temp\\temp.mp4 -i {} -map 0:v {} -map -1:v -c copy {}", &args.inputpath, &ffmpeg_args, output_path);
+    } else {
+        println!("copying streams");
+        //let ffmpeg_output = copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
+        copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
+        //copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path, &ffmpeg_args);
+    }
 
 /*     println!("{}", &temp_video_path);
     println!("{}", &args.inputpath);
@@ -739,6 +763,7 @@ fn main() {
     //copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
 
     // Validation
+    // TEMP disabled to avoid deletion of files
     {
         let p = Path::new(&temp_video_path);
         if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
@@ -759,5 +784,7 @@ fn main() {
 
     let ancestors = Path::new(& args.inputpath).file_name().unwrap();
     println!("done {:?} to {:?} in {}h:{}m:{}s", ancestors, done_output, hours, minutes, seconds);
-    //println!("ffmpeg.exe -i {} -i {} -map 0:v -map 1 -map -1:v -c copy {}", &temp_video_path, &args.inputpath, output_path);
+    //println!("ffmpeg.exe -i temp\\temp.mp4 -i {} -map 0:v -map 1 -map -1:v -c copy {}", &args.inputpath, output_path);
+    //println!("ffmpeg.exe -i temp\\temp.mp4 -i {} -map 0:v {} -map -1:v -c copy {}", &args.inputpath, &ffmpeg_args, output_path);
+    //println!("{:#?}", ffmpeg_output);
 }
