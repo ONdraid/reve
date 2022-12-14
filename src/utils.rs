@@ -1,12 +1,10 @@
 use colored::Colorize;
 use indicatif::{ProgressBar};
 use path_clean::PathClean;
-//use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::path::{Path, PathBuf};
-//use std::process::{exit};
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
@@ -129,15 +127,6 @@ pub fn dev_shm_exists() -> Result<(), std::io::Error> {
     }
     Ok(())
 }
-
-/* "-map",
-"0:v",
-"-map",
-"1",
-"-1:v",
-"-c",
-"copy",
-output_path */
 
 pub fn copy_streams_no_bin_data(
     video_input_path: &String,
@@ -357,70 +346,6 @@ pub fn get_frame_rate(input_path: &String) -> String {
     let seconds: f32 = vec_framerate[1].parse().unwrap();
     //return String::from_utf8(output.stdout).unwrap().trim().to_string();
     return (frames/seconds).to_string();
-}
-
-pub fn get_audio_streams(input_path: &String) -> usize {
-    let output = Command::new("ffprobe")
-        .arg("-i")
-        .arg(input_path)
-        .arg("-v")
-        .arg("error")
-        .arg("-select_streams")
-        .arg("a")
-        .arg("-show_entries")
-        .arg("stream=index")
-        .arg("-of")
-        .arg("default=noprint_wrappers=1:nokey=1")
-        .output()
-        .expect("failed to execute process");
-
-    let temp_output = output.clone();
-    let index = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
-    let split_index = index.lines();
-    let index_count = split_index.count();
-    return index_count;
-}
-
-pub fn get_subtitle_streams(input_path: &String) -> usize {
-    let output = Command::new("ffprobe")
-        .arg("-i")
-        .arg(input_path)
-        .arg("-v")
-        .arg("error")
-        .arg("-select_streams")
-        .arg("s")
-        .arg("-show_entries")
-        .arg("stream=index")
-        .arg("-of")
-        .arg("default=noprint_wrappers=1:nokey=1")
-        .output()
-        .expect("failed to execute process");
-
-    let temp_output = output.clone();
-    let index = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
-    let split_index = index.lines();
-    let index_count = split_index.count();
-    return index_count;
-}
-
-pub fn get_chapters(input_path: &String) -> usize {
-    let output = Command::new("ffprobe")
-        .arg("-i")
-        .arg(input_path)
-        .arg("-v")
-        .arg("error")
-        .arg("-show_entries")
-        .arg("chapter=id")
-        .arg("-of")
-        .arg("default=noprint_wrappers=1:nokey=1")
-        .output()
-        .expect("failed to execute process");
-
-    let temp_output = output.clone();
-    let chapters = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
-    let split_chapters = chapters.lines();
-    let chapters_count = split_chapters.count();
-    return chapters_count;
 }
 
 pub fn get_bin_data(input_path: &String) -> String {
