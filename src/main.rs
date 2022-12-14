@@ -4,15 +4,12 @@ use crate::utils::*;
 use clap::{Parser};
 use clearscreen::clear;
 use colored::Colorize;
-use dialoguer::Confirm;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::env;
-use std::fmt::format;
-use std::fs::{self, DirEntry};
+use std::fs::{self};
 use std::io::{ErrorKind};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::process::{Command, exit};
 use std::str::FromStr;
 use std::{thread, time::Duration};
@@ -153,7 +150,6 @@ fn main() {
     args = Args::parse();
 
     let current_exe_path = env::current_exe().unwrap();
-    let now = Instant::now();
 
     // Try to create directories needed
     match create_dirs() {
@@ -166,11 +162,10 @@ fn main() {
     #[cfg(target_os = "linux")]
     dev_shm_exists();
 
-    let input_path: String = "".to_string();
     let mut output_path: String = "".to_string();
     let mut done_output: String = "".to_string();
     let mut current_file_count = 0;
-    let mut total_files = 0;
+    let mut total_files;
 
     #[cfg(target_os = "windows")]
     let tmp_frames_path = "temp\\tmp_frames\\";
@@ -339,7 +334,10 @@ fn main() {
                 let directory_path = format!("{}{}", directory.trim_end_matches("."), "\\");
                 output_path = format!("{}{}.{}.{}", directory_path, filename_no_ext, filename_codec, filename_ext);
                 done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
-                output_validation(&output_path);
+                match output_validation(&output_path) {
+                    Err(e) => println!("{:?}", e),
+                    _ => ()
+                }
             }
             if args.outputpath.is_some() {
                 let str_outputpath = &args.outputpath.as_deref().unwrap_or("default string").to_owned();
@@ -348,8 +346,10 @@ fn main() {
     
                 output_path = absolute_path(filename.to_string());
                 done_output = filename.to_string();
-                output_validation(&output_path);
-            }
+                match output_validation(&output_path) {
+                    Err(e) => println!("{:?}", e),
+                    _ => ()
+                }            }
 
             args.inputpath = absolute_path(file.clone());
 
@@ -390,8 +390,10 @@ fn main() {
             output_path = absolute_path(filename.to_string());
             done_output = filename.to_string();
         }
-        output_validation(&output_path);
-        clear().expect("failed to clear screen");
+        match output_validation(&output_path) {
+            Err(e) => println!("{:?}", e),
+            _ => ()
+        }        clear().expect("failed to clear screen");
         total_files = 1;
         work(&args, current_file_count, total_files, done_output, output_path);
 
@@ -412,25 +414,15 @@ fn main() {
     }
 }
 
-fn work(args: &Args, mut current_file_count: i32, mut total_files: i32, done_output: String, output_path: String) {
-    let current_exe_path = env::current_exe().unwrap();
+fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String) {
     let now = Instant::now();
 
     let filename = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
 
     #[cfg(target_os = "windows")]
-    let tmp_frames_path = "temp\\tmp_frames\\";
-    let out_frames_path = "temp\\out_frames\\";
     let video_parts_path = "temp\\video_parts\\";
     let temp_video_path = format!("temp\\temp.{}", &args.extension);
     let txt_list_path = "temp\\parts.txt";
-    let args_path = current_exe_path
-    .parent()
-    .unwrap()
-    .join("temp\\args.temp")
-    .into_os_string()
-    .into_string()
-    .unwrap();
 
     let total_frame_count = get_frame_count(&args.inputpath);
     let original_frame_rate = get_frame_rate(&&args.inputpath);
@@ -485,7 +477,6 @@ fn work(args: &Args, mut current_file_count: i32, mut total_files: i32, done_out
 
         let mut export_handle = thread::spawn(move || {});
         let mut merge_handle = thread::spawn(move || {});
-        let file_style = "[file][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processed files       eta: {eta:<7}";
         let info_style = "[info][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processed segments       eta: {eta:<7}";
         let expo_style = "[expo][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} exporting segment        {per_sec:<12}";
         let upsc_style = "[upsc][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} upscaling segment        {per_sec:<12}";

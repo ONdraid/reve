@@ -4,11 +4,10 @@ use path_clean::PathClean;
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
-use std::process::exit;
 
 pub fn check_bins() {
     #[cfg(target_os = "windows")]
@@ -278,20 +277,16 @@ pub fn find_mimetype(filename :&String) -> String{
 
 pub fn check_ffprobe_output(data: &str, res: &str, file: &str) -> Result<Vec<String>, Error> {
     let mut arr: Vec<std::string::String> = vec![];
-    let mut index = 0;
+    let index = 0;
     let v: Value = serde_json::from_str(data)?;
     let height = &v["streams"][0]["height"];
     let u8_height = height.as_i64().unwrap();
     let u8_res: i64 = res.parse().unwrap();
-    let count = 0;
 
     if u8_res >= u8_height {
         arr.insert(index, file.to_string());
-        index = index + 1;
-        count == count+1;
     } else {
         arr.insert(index, "nope".to_string());
-        index = index + 1;
     }
 
     return Ok(arr);
@@ -338,7 +333,7 @@ pub fn get_frame_rate(input_path: &String) -> String {
     
     let temp_output = output.clone();
     let raw_framerate = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
-    let mut split_framerate = raw_framerate.split("/");
+    let split_framerate = raw_framerate.split("/");
     let vec_framerate: Vec<&str> = split_framerate.collect();
     println!("{}", vec_framerate[0]);
     println!("{}", vec_framerate[1]);
