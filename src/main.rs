@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::fmt::format;
-use std::fs;
+use std::fs::{self, DirEntry};
 use std::io::{ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
@@ -374,34 +374,24 @@ fn main() {
     }
 
     if md.is_file() {
-        let path = Path::new(&args.inputpath);
-        let directory = absolute_path(path.parent().unwrap());
-        let file_path = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
-        println!("directory + file: {}{}", directory.trim_end_matches("."), file_path);
-        args.inputpath = absolute_path(file_path.clone().to_string());
-
+        let directory = Path::new(&args.inputpath).parent().unwrap().to_str().unwrap();
         if args.outputpath.is_none() {
             let path = Path::new(&args.inputpath);
             let filename_ext = &args.extension;
             let filename_no_ext = path.file_stem().unwrap().to_string_lossy();
             let filename_codec = &args.codec;
-            let directory = absolute_path(path.parent().unwrap());
-            let directory_path = format!("{}{}", directory.trim_end_matches("."), "\\");
-            output_path = format!("{}{}.{}.{}", directory_path, filename_no_ext, filename_codec, filename_ext);
+            output_path = format!("{}\\{}.{}.{}", directory, filename_no_ext, filename_codec, filename_ext);
             done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
         }
         if args.outputpath.is_some() {
             let str_outputpath = &args.outputpath.as_deref().unwrap_or("default string").to_owned();
             let path = Path::new(&str_outputpath);
             let filename = path.file_name().unwrap().to_string_lossy();
-
             output_path = absolute_path(filename.to_string());
             done_output = filename.to_string();
         }
         output_validation(&output_path);
-
         clear().expect("failed to clear screen");
-
         total_files = 1;
         work(&args, current_file_count, total_files, done_output, output_path);
 
