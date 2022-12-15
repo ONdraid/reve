@@ -133,8 +133,13 @@ pub fn dev_shm_exists() -> Result<(), std::io::Error> {
         fs::create_dir_all("/dev/shm/tmp_frames")?;
         fs::create_dir_all("/dev/shm/out_frames")?;
         fs::create_dir_all("/dev/shm/video_parts")?;
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "dev/shm does not exist!",
+        ))
     }
-    Ok(())
 }
 
 pub fn copy_streams_no_bin_data(

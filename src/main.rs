@@ -161,7 +161,13 @@ fn main() {
     check_bins();
 
     #[cfg(target_os = "linux")]
-    dev_shm_exists();
+    match dev_shm_exists() {
+        Err(e) => {
+            println!("{:?}", e);
+            exit(1);
+        },
+        _ => ()
+    };
 
     let mut output_path: String = "".to_string();
     let mut done_output: String = "".to_string();
@@ -170,10 +176,15 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     let tmp_frames_path = "temp\\tmp_frames\\";
+    #[cfg(target_os = "windows")]
     let out_frames_path = "temp\\out_frames\\";
+    #[cfg(target_os = "windows")]
     let video_parts_path = "temp\\video_parts\\";
+    #[cfg(target_os = "windows")]
     let temp_video_path = format!("temp\\temp.{}", &args.format);
+    #[cfg(target_os = "windows")]
     let txt_list_path = "temp\\parts.txt";
+    #[cfg(target_os = "windows")]
     let args_path = current_exe_path
     .parent()
     .unwrap()
@@ -189,7 +200,7 @@ fn main() {
     #[cfg(target_os = "linux")]
     let video_parts_path = "/dev/shm/video_parts/";
     #[cfg(target_os = "linux")]
-    let temp_video_path = format!("/dev/shm/temp.{}", &args.extension);
+    let temp_video_path = format!("/dev/shm/temp.{}", &args.format);
     #[cfg(target_os = "linux")]
     let txt_list_path = "/dev/shm/parts.txt";
     #[cfg(target_os = "linux")]
@@ -437,7 +448,9 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
 
     #[cfg(target_os = "windows")]
     let video_parts_path = "temp\\video_parts\\";
+    #[cfg(target_os = "windows")]
     let temp_video_path = format!("temp\\temp.{}", &args.format);
+    #[cfg(target_os = "windows")]
     let txt_list_path = "temp\\parts.txt";
 
     #[cfg(target_os = "linux")]
@@ -635,7 +648,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
             #[cfg(target_os = "linux")]
             let _inpt = format!("/dev/shm/out_frames/{}/frame%08d.png", segment.index);
             #[cfg(target_os = "linux")]
-            let _outpt = format!("/dev/shm/video_parts/{}.{}", segment.index, &args.extension);
+            let _outpt = format!("/dev/shm/video_parts/{}.{}", segment.index, &args.format);
             #[cfg(target_os = "windows")]
             let _inpt = format!("temp\\out_frames\\{}\\frame%08d.png", segment.index);
             #[cfg(target_os = "windows")]
