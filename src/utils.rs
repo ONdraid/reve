@@ -36,14 +36,24 @@ pub fn check_bins() {
     if ffmpeg == true {
         println!("{}", String::from("ffmpeg exists!").green().bold());
     } else {
-        let ffmpeg_path = Command::new("ffmpeg");
-        assert_eq!(ffmpeg_path.get_program(), "ffmpeg");
+        match Command::new("ffmpeg").spawn() {
+            Ok(_) => println!("{}", String::from("ffmpeg exists!").green().bold()),
+            Err(_) => {
+                println!("{}", String::from("ffmpeg does not exist!").red().bold());
+                std::process::exit(1);
+            }
+        }
     }
     if ffprobe == true {
         println!("{}", String::from("ffprobe exists!").green().bold());
     } else {
-        let ffmpeg_path = Command::new("ffprobe");
-        assert_eq!(ffmpeg_path.get_program(), "ffprobe");
+        match Command::new("ffprobe").spawn() {
+            Ok(_) => println!("{}", String::from("ffprobe exists!").green().bold()),
+            Err(_) => {
+                println!("{}", String::from("ffprobe does not exist!").red().bold());
+                std::process::exit(1);
+            }
+        }
     }
     if model == true {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin exists!").green().bold());

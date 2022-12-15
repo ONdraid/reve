@@ -23,15 +23,17 @@ use std::fs::metadata;
        long_about = None)]
 
 struct Args {
-    /// input video path (mp4/mkv)
+    /// input video path (mp4/mkv/...) or folder path (\\... or /... or C:\...)
     #[clap(short = 'i', long, value_parser = input_validation)]
     inputpath: String,
 
-    #[clap(short = 'r', long, value_parser = resolution_validation, default_value = "480")]
+    // maximum resolution (480 by default)
+    #[clap(short = 'r', long, value_parser = max_resolution_validation, default_value = "480")]
     resolution: String,
 
-    #[clap(short = 'x', long, value_parser = extension_validation, default_value = "mp4")]
-    extension: String,
+    // output video extension format (mp4 by default)
+    #[clap(short = 'f', long, value_parser = format_validation, default_value = "mp4")]
+    format: String,
 
     /// upscale ratio (2, 3, 4)
     #[clap(short = 's', long, value_parser = clap::value_parser!(u8).range(2..5), default_value_t = 2)]
@@ -67,6 +69,7 @@ struct Args {
     )]
     x265params: String,
 
+    // (Optional) output video path (file.mp4/mkv/...)
     #[clap(short = 'o', long, value_parser = output_validation)]
     outputpath: Option<String>,
 }
@@ -79,11 +82,9 @@ struct Segment {
 fn input_validation(s: &str) -> Result<String, String> {
     let p = Path::new(s);
     if p.is_dir() {
-        //walk(&s.to_string());    
         return Ok(String::from_str(s).unwrap());
     }
 
-    println!("{:?}", p);
     if !p.exists() {
         return Err(String::from_str("input path not found").unwrap());
     }
@@ -109,14 +110,14 @@ fn output_validation(s: &str) -> Result<String, String> {
     }
 }
 
-fn extension_validation(s: &str) -> Result<String, String> {
+fn format_validation(s: &str) -> Result<String, String> {
     match s {
         "mp4" | "mkv" | "avi" => Ok(s.to_string()),
         _ => Err(String::from_str("valid output formats: mp4/mkv/avi").unwrap()),
     }
 }
 
-fn resolution_validation(s: &str) -> Result<String, String> {
+fn max_resolution_validation(s: &str) -> Result<String, String> {
     let validate = s.parse::<f64>().is_ok();
     match validate {
         true => Ok(s.to_string()),
@@ -171,7 +172,7 @@ fn main() {
     let tmp_frames_path = "temp\\tmp_frames\\";
     let out_frames_path = "temp\\out_frames\\";
     let video_parts_path = "temp\\video_parts\\";
-    let temp_video_path = format!("temp\\temp.{}", &args.extension);
+    let temp_video_path = format!("temp\\temp.{}", &args.format);
     let txt_list_path = "temp\\parts.txt";
     let args_path = current_exe_path
     .parent()
@@ -215,6 +216,11 @@ fn main() {
         let old_args_json = fs::read_to_string(&args_path).expect("Unable to read file");
         let old_args: Args = serde_json::from_str(&old_args_json).unwrap();
         let previous_file = Path::new(&old_args.inputpath);
+
+/*         println!("{}", previous_file.to_string_lossy());
+        println!("{}", args.inputpath);
+        exit(1); */
+
         if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) {
             println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
             // Resume upscale
@@ -243,7 +249,11 @@ fn main() {
             };
 
             let serialized_args = serde_json::to_string(&args).unwrap();
-            fs::write(&args_path, serialized_args).expect("Unable to write file");
+
+            let md = metadata(&args.inputpath).unwrap();
+            if md.is_file() {
+                fs::write(&args_path, serialized_args).expect("Unable to write file");
+            }
             clear().expect("failed to clear screen");
             println!(
                 "{}",
@@ -327,7 +337,7 @@ fn main() {
 
             if args.outputpath.is_none() {
                 let path = Path::new(&args.inputpath);
-                let filename_ext = &args.extension;
+                let filename_ext = &args.format;
                 let filename_no_ext = path.file_stem().unwrap().to_string_lossy();
                 let filename_codec = &args.codec;
                 let directory = absolute_path(path.parent().unwrap());
@@ -373,14 +383,20 @@ fn main() {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    let folder_args = "\\";
+    #[cfg(target_os = "linux")]
+    let folder_args = "/";
+
     if md.is_file() {
+        current_file_count = 1;
         let directory = Path::new(&args.inputpath).parent().unwrap().to_str().unwrap();
         if args.outputpath.is_none() {
             let path = Path::new(&args.inputpath);
-            let filename_ext = &args.extension;
+            let filename_ext = &args.format;
             let filename_no_ext = path.file_stem().unwrap().to_string_lossy();
             let filename_codec = &args.codec;
-            output_path = format!("{}\\{}.{}.{}", directory, filename_no_ext, filename_codec, filename_ext);
+            output_path = format!("{}{}{}.{}.{}", directory, folder_args, filename_no_ext, filename_codec, filename_ext);
             done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
         }
         if args.outputpath.is_some() {
@@ -421,8 +437,15 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
 
     #[cfg(target_os = "windows")]
     let video_parts_path = "temp\\video_parts\\";
-    let temp_video_path = format!("temp\\temp.{}", &args.extension);
+    let temp_video_path = format!("temp\\temp.{}", &args.format);
     let txt_list_path = "temp\\parts.txt";
+
+    #[cfg(target_os = "linux")]
+    let video_parts_path = "/dev/shm/video_parts/";
+    #[cfg(target_os = "linux")]
+    let temp_video_path = format!("/dev/shm/temp.{}", &args.format);
+    #[cfg(target_os = "linux")]
+    let txt_list_path = "/dev/shm/parts.txt";
 
     let total_frame_count = get_frame_count(&args.inputpath);
     let original_frame_rate = get_frame_rate(&&args.inputpath);
@@ -450,7 +473,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
     {
         let mut unprocessed_indexes = Vec::new();
         for i in 0..parts_num {
-            let n = format!("{}\\{}.{}", video_parts_path, i, &args.extension);
+            let n = format!("{}\\{}.{}", video_parts_path, i, &args.format);
             let p = Path::new(&n);
             let frame_number = if i + 1 == parts_num {
                 last_part_size
@@ -616,12 +639,12 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
             #[cfg(target_os = "windows")]
             let _inpt = format!("temp\\out_frames\\{}\\frame%08d.png", segment.index);
             #[cfg(target_os = "windows")]
-            let _outpt = format!("temp\\video_parts\\{}.{}", segment.index, &args.extension);
+            let _outpt = format!("temp\\video_parts\\{}.{}", segment.index, &args.format);
             let _frmrt = original_frame_rate.clone();
             let _crf = args.crf.clone().to_string();
             let _preset = args.preset.clone();
             let _x265_params = args.x265params.clone();
-            let _extension = args.extension.clone();
+            let _extension = args.format.clone();
 
             let progress_bar = m.insert_after(&last_pb, ProgressBar::new(frame_number as u64));
             progress_bar.set_style(
@@ -685,7 +708,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
     }
 
     // Merge video parts
-    let choosen_extension = &args.extension;
+    let choosen_extension = &args.format;
     #[cfg(target_os = "linux")]
     let mut f_content = format!("file 'video_parts/0.{}'", choosen_extension);
     #[cfg(target_os = "windows")]
