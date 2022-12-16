@@ -5,6 +5,7 @@ use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::path::{Path};
+use std::process::exit;
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
@@ -432,6 +433,7 @@ pub fn upscale_frames(
     scale: &String,
     progress_bar: ProgressBar,
     total_progress_bar: ProgressBar,
+    mut frame_position: u64,
 ) -> Result<u64, Error> {
     #[cfg(target_os = "linux")]
     let stderr = Command::new("./realesrgan-ncnn-vulkan")
@@ -476,17 +478,21 @@ pub fn upscale_frames(
     let reader = BufReader::new(stderr);
     let mut count = 0;
 
+    total_progress_bar.set_position(frame_position);
+    //println!("{}", frame_position);
+
     reader
         .lines()
         .filter_map(|line| line.ok())
         .filter(|line| line.contains("done"))
         .for_each(|_| {
             count += 1;
+            frame_position += 1;
             progress_bar.set_position(count);
-            total_progress_bar.set_position(count);
+            total_progress_bar.set_position(frame_position);
         });
 
-    Ok((u64::from(total_progress_bar.position())))
+    Ok(u64::from(total_progress_bar.position()))
 }
 
 // 2022-05-23 17:47 27cffd1
