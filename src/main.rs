@@ -147,6 +147,8 @@ fn codec_validation(s: &str) -> Result<String, String> {
 }
 
 fn main() {
+    let main_now = Instant::now();
+
     let mut args;
     args = Args::parse();
 
@@ -172,7 +174,8 @@ fn main() {
     let mut output_path: String = "".to_string();
     let mut done_output: String = "".to_string();
     let mut current_file_count = 0;
-    let mut total_files;
+    let mut total_files: i32;
+    let mut frame_position: u64 = 0;
 
     #[cfg(target_os = "windows")]
     let tmp_frames_path = "temp\\tmp_frames\\";
@@ -302,6 +305,18 @@ fn main() {
         );
     }
 
+/*     let mut total_files = 0;
+    let file_style = "[file][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processing file       eta: {eta:<7}";
+    let m = MultiProgress::new();
+    let pb = m.add(ProgressBar::new(total_files as u64));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(file_style)
+            .unwrap()
+            .progress_chars("#>-"),
+    ); */
+    //let mut last_pb = pb.clone();
+
     let md = metadata(Path::new(&args.inputpath)).unwrap();
 
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
@@ -340,6 +355,17 @@ fn main() {
         }
         println!("Upscaling {} files (Due to max height resolution: {}p)", count, &args.resolution);
 
+        let total_segments = vector_files_to_process.clone();
+        let mut current_segment_count = 0;
+        for file in total_segments {
+            current_segment_count += get_frame_count(&file);
+            //println!("{}", current_segment_count);
+        }
+        let total_segment_count = current_segment_count;
+
+        //println!("{}", current_segment_count);
+        //exit(1);
+
         for file in vector_files_to_process {
             current_file_count = current_file_count + 1;
             total_files = count;
@@ -374,10 +400,14 @@ fn main() {
 
             args.inputpath = absolute_path(file.clone());
 
-            work(&args, current_file_count, total_files, done_output.clone(), output_path.clone());
+/*             println!("{}", total_segment_count);
+            exit(1); */
+
+            frame_position = work(&args, current_file_count, total_files, done_output.clone(), output_path.clone(), total_segment_count.clone(), frame_position.clone());
 
             // Validation
             {
+               
                 let p = Path::new(&temp_video_path);
                 if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
                     clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
@@ -392,6 +422,11 @@ fn main() {
                 }
             }
         }
+        let elapsed = main_now.elapsed();
+        let seconds = elapsed.as_secs() % 60;
+        let minutes = (elapsed.as_secs() / 60) % 60;
+        let hours = (elapsed.as_secs() / 60) / 60;
+        println!("done {} files in {}h:{}m:{}s", count, hours, minutes, seconds);
     }
 
     #[cfg(target_os = "windows")]
@@ -401,6 +436,7 @@ fn main() {
 
     if md.is_file() {
         current_file_count = 1;
+        let total_segment_count = get_frame_count(&args.inputpath);
         let directory = Path::new(&args.inputpath).parent().unwrap().to_str().unwrap();
         if args.outputpath.is_none() {
             let path = Path::new(&args.inputpath);
@@ -422,7 +458,7 @@ fn main() {
             _ => ()
         }        clear().expect("failed to clear screen");
         total_files = 1;
-        work(&args, current_file_count, total_files, done_output, output_path);
+        work(&args, current_file_count, total_files, done_output, output_path, total_segment_count, frame_position.clone());
 
         // Validation
         {
@@ -441,8 +477,12 @@ fn main() {
     }
 }
 
-fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String) {
-    let now = Instant::now();
+fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_segment_count: u32, mut frame_position: u64) -> u64 {
+
+    /*     println!("{}", total_segment_count);
+    exit(1); */
+    
+    let work_now = Instant::now();
 
     let filename = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
 
@@ -513,6 +553,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
 
         let mut export_handle = thread::spawn(move || {});
         let mut merge_handle = thread::spawn(move || {});
+        let total_frames_style = "[fram][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} total frames       eta: {eta:<7}";
         let info_style = "[info][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processed segments       eta: {eta:<7}";
         let expo_style = "[expo][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} exporting segment        {per_sec:<12}";
         let upsc_style = "[upsc][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} upscaling segment        {per_sec:<12}";
@@ -527,6 +568,19 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
                 .progress_chars("#>-"),
         );
         let mut last_pb = pb.clone();
+
+        //let progress_bar = m.insert_after(&last_pb, ProgressBar::new(total_files as u64));
+        let progress_bar_frames = m.insert_after(&last_pb, ProgressBar::new(total_segment_count as u64));
+        progress_bar_frames.set_style(
+            ProgressStyle::default_bar()
+                .template(total_frames_style)
+                .unwrap()
+                .progress_chars("#>-"),
+        );
+        progress_bar_frames.set_position(current_file_count as u64);
+
+        let mut last_pb = pb.clone();
+        last_pb = progress_bar_frames.clone();
 
         // Initial export
         if !unprocessed_indexes.is_empty() {
@@ -639,9 +693,9 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
             );
             last_pb = progress_bar.clone();
 
-            upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar)
+            frame_position = upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar, progress_bar_frames.clone())
                 .expect("could not upscale frames");
-
+            
             merge_handle.join().unwrap();
 
             let _codec = args.codec.clone();
@@ -718,6 +772,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
         }
         merge_handle.join().unwrap();
         m.clear().unwrap();
+        return frame_position;
     }
 
     // Merge video parts
@@ -770,7 +825,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
     }
 
     clear().expect("failed to clear screen");
-    let elapsed = now.elapsed();
+    let elapsed = work_now.elapsed();
     let seconds = elapsed.as_secs() % 60;
     let minutes = (elapsed.as_secs() / 60) % 60;
     let hours = (elapsed.as_secs() / 60) / 60;

@@ -431,7 +431,8 @@ pub fn upscale_frames(
     output_path: &String,
     scale: &String,
     progress_bar: ProgressBar,
-) -> Result<(), Error> {
+    total_progress_bar: ProgressBar,
+) -> Result<u64, Error> {
     #[cfg(target_os = "linux")]
     let stderr = Command::new("./realesrgan-ncnn-vulkan")
         .args([
@@ -482,9 +483,10 @@ pub fn upscale_frames(
         .for_each(|_| {
             count += 1;
             progress_bar.set_position(count);
+            total_progress_bar.set_position(count);
         });
 
-    Ok(())
+    Ok((u64::from(total_progress_bar.position())))
 }
 
 // 2022-05-23 17:47 27cffd1
@@ -538,7 +540,6 @@ pub fn merge_frames(
             count += 1;
             progress_bar.set_position(count);
         });
-
     Ok(())
 }
 
