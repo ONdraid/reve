@@ -539,6 +539,9 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
     {
         let mut unprocessed_indexes = Vec::new();
         for i in 0..parts_num {
+            #[cfg(target_os = "linux")]
+            let n = format!("{}/{}.{}", video_parts_path, i, &args.format);
+            #[cfg(target_os = "windows")]
             let n = format!("{}\\{}.{}", video_parts_path, i, &args.format);
             let p = Path::new(&n);
             let frame_number = if i + 1 == parts_num {
@@ -563,6 +566,9 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
                 }
             }
         }
+
+        frame_position = (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
+
 
         let mut export_handle = thread::spawn(move || {});
         let mut merge_handle = thread::spawn(move || {});
