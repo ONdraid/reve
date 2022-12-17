@@ -248,7 +248,8 @@ fn main() {
         println!("{}", args.inputpath);
         exit(1); */
 
-        if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) {
+        if args.inputpath == previous_file.to_string_lossy() {
+        //if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) {
             println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
             // Resume upscale
             let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
