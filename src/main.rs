@@ -6,7 +6,6 @@ use clearscreen::clear;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
-use serde_json::to_string;
 use std::env;
 use std::fs::{self};
 use std::io::{ErrorKind};
@@ -103,6 +102,19 @@ fn output_validation(s: &str) -> Result<String, String> {
         println!("{} already exists!", &s);
         exit(1);
     }
+    else {
+        match p.extension().unwrap().to_str().unwrap() {
+            "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+            _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
+        }
+    }
+}
+
+fn output_validation_dir(s: &str) -> Result<String, String> {
+    let p = Path::new(s);
+
+    if p.exists() {
+        return Ok("already exists".to_string());    }
     else {
         match p.extension().unwrap().to_str().unwrap() {
             "mp4" | "mkv" | "avi" => Ok(s.to_string()),
@@ -306,18 +318,6 @@ fn main() {
         );
     }
 
-/*     let mut total_files = 0;
-    let file_style = "[file][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} processing file       eta: {eta:<7}";
-    let m = MultiProgress::new();
-    let pb = m.add(ProgressBar::new(total_files as u64));
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(file_style)
-            .unwrap()
-            .progress_chars("#>-"),
-    ); */
-    //let mut last_pb = pb.clone();
-
     let md = metadata(Path::new(&args.inputpath)).unwrap();
 
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
@@ -327,7 +327,7 @@ fn main() {
         let vector_files = walk_files(&args.inputpath);
         let mut vector_files_to_process: Vec<String> = Vec::new();
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
-        vector_files_to_process_frames_count.push(0);
+        //vector_files_to_process_frames_count.push(0);
 
         for vector in vector_files {
             let ffprobe_output = Command::new("ffprobe")
@@ -368,8 +368,6 @@ fn main() {
         }
         let total_frames_count = current_frame_count;
 
-        //println!("{}", current_segment_count);
-        //exit(1);
         let mut file_frame = 0;
         for file in vector_files_to_process {
             current_file_count = current_file_count + 1;
@@ -386,9 +384,14 @@ fn main() {
                 let directory_path = format!("{}{}", directory.trim_end_matches("."), "\\");
                 output_path = format!("{}{}.{}.{}", directory_path, filename_no_ext, filename_codec, filename_ext);
                 done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
-                match output_validation(&output_path) {
-                    Err(e) => println!("{:?}", e),
-                    _ => ()
+                match output_validation_dir(&output_path) {
+                    Err(e) => {
+                        println!("{:?}", e);
+                        exit(1);
+                    },                    Ok(s) => if s.contains("already exists") {
+                        println!("{} already exists, skipping", done_output);
+                        continue;
+                    }
                 }
             }
             if args.outputpath.is_some() {
@@ -398,16 +401,19 @@ fn main() {
     
                 output_path = absolute_path(filename.to_string());
                 done_output = filename.to_string();
-                match output_validation(&output_path) {
-                    Err(e) => println!("{:?}", e),
-                    _ => ()
-                }            }
+                match output_validation_dir(&output_path) {
+                    Err(e) => {
+                        println!("{:?}", e);
+                        exit(1);
+                    },
+                    Ok(s) => if s.contains("already exists") {
+                        println!("{} already exists, skipping", done_output);
+                        continue;
+                    }
+                }
+            }
 
             args.inputpath = absolute_path(file.clone());
-
-/*             println!("{}", total_segment_count);
-            exit(1); */
-
             frame_position += vector_files_to_process_frames_count[file_frame];
 
             println!("position:{}", frame_position);
@@ -415,7 +421,7 @@ fn main() {
             file_frame += 1;
 
             //frame_position = work(&args, current_file_count, total_files, done_output.clone(), output_path.clone(), total_segment_count.clone(), frame_position.clone());
-            work(&args, current_file_count, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), frame_position.clone());
+            work(&args, current_file_count, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), frame_position.clone(), vector_files_to_process_frames_count.clone());
 
             // Validation
             {
@@ -470,7 +476,9 @@ fn main() {
             _ => ()
         }        clear().expect("failed to clear screen");
         total_files = 1;
-        work(&args, current_file_count, total_files, done_output, output_path, total_frames_count, frame_position.clone());
+
+        let temp_vector = vec![total_frames_count];
+        work(&args, current_file_count, total_files, done_output, output_path, total_frames_count, frame_position.clone(), temp_vector);
 
         // Validation
         {
@@ -490,7 +498,7 @@ fn main() {
 }
 
 //fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_segment_count: u32, mut frame_position: u64) -> u64 {
-fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, mut frame_position: u64) {
+fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, mut frame_position: u64, vector_files_to_process_frames_count: Vec<u64>) {
 
 /*     println!("{}", frame_position);
     exit(1); */
@@ -567,7 +575,23 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
             }
         }
 
-        frame_position = (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
+        //println!("{}", total_files);
+        let j = current_file_count;
+        let mut count = 0;
+        //let first_file = get_frame_count(&vector_files_to_process.to_string()) as usize;
+        for i in j-1..(total_files) {
+/*             if vector_files_to_process_frames_count[i as usize] == 0 {
+                count += get_frame_count(&filename.to_string()) as usize;
+            } */
+            //println!("{}:{}", i, vector_files_to_process_frames_count[i as usize]);
+            count += vector_files_to_process_frames_count[i as usize];
+        }
+        //println!("{}", count);
+        //println!("{}", total_frames_count);
+        //println!("{}", total_frames_count - count);
+        frame_position = (total_frames_count - count) + (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
+        //println!("{}", frame_position);
+        //exit(1);
 
 
         let mut export_handle = thread::spawn(move || {});
