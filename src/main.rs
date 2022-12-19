@@ -320,11 +320,21 @@ fn main() {
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
     if md.is_dir() {
         let mut count = 0;
-        walk_count(&args.inputpath);
+        let walk_count: u64 = walk_count(&args.inputpath) as u64;
+        let files_bar = ProgressBar::new(walk_count);
+        let files_style = "[file][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} analyzed files       eta: {eta:<7}";
+        files_bar.set_style(
+            ProgressStyle::default_bar()
+                .template(files_style)
+                .unwrap()
+                .progress_chars("#>-"),
+        );
+
         let vector_files = walk_files(&args.inputpath);
         let mut vector_files_to_process: Vec<String> = Vec::new();
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
         for vector in vector_files {
+            files_bar.inc(1);
             let ffprobe_output = Command::new("ffprobe")
             .args([
                 "-i",

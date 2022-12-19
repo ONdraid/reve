@@ -1,5 +1,4 @@
 use colored::Colorize;
-use indicatif::{ProgressBar};
 use path_clean::PathClean;
 use std::env;
 use std::fs;
@@ -8,6 +7,7 @@ use std::path::{Path};
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
+use indicatif::ProgressBar;
 
 pub fn check_bins() {
     #[cfg(target_os = "windows")]
@@ -249,6 +249,7 @@ pub fn walk_count(dir: &String) -> usize {
 pub fn walk_files(dir: &String) -> Vec<String>{
     let mut arr = vec![];
     let mut index = 0;
+
     for e in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
         if e.metadata().unwrap().is_file() {
             let filepath = e.path().display();
