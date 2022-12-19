@@ -5,7 +5,6 @@ use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::path::{Path};
-use std::process::exit;
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
@@ -332,6 +331,54 @@ pub fn get_frame_count(input_path: &String) -> u32 {
     }
 }
 
+pub fn get_frame_count_tag(input_path: &String) -> u32 {
+    let output = Command::new("ffprobe")
+        .arg("-i")
+        .arg(input_path)
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v")
+        .arg("-show_entries")
+        .arg("stream_tags=NUMBER_OF_FRAMES-eng")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .output()
+        .expect("failed to execute process");
+    let r = String::from_utf8(output.stdout)
+        .unwrap()
+        .trim()
+        .parse::<u32>();
+    match r {
+        Err(_e) => 0,
+        _ => r.unwrap(),
+    }
+}
+
+pub fn get_display_aspect_ratio(input_path: &String) -> String {
+    let output = Command::new("ffprobe")
+        .arg("-i")
+        .arg(input_path)
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v")
+        .arg("-show_entries")
+        .arg("stream=display_aspect_ratio")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .output()
+        .expect("failed to execute process");
+    let r = String::from_utf8(output.stdout)
+        .unwrap()
+        .trim()
+        .parse::<String>();
+    match r {
+        Err(_e) => "0".to_owned(),
+        _ => r.unwrap(),
+    }
+}
+
 pub fn get_frame_rate(input_path: &String) -> String {
     let output = Command::new("ffprobe")
         .arg("-i")
@@ -351,11 +398,8 @@ pub fn get_frame_rate(input_path: &String) -> String {
     let raw_framerate = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
     let split_framerate = raw_framerate.split("/");
     let vec_framerate: Vec<&str> = split_framerate.collect();
-    println!("{}", vec_framerate[0]);
-    println!("{}", vec_framerate[1]);
     let frames: f32 = vec_framerate[0].parse().unwrap();
     let seconds: f32 = vec_framerate[1].parse().unwrap();
-    //return String::from_utf8(output.stdout).unwrap().trim().to_string();
     return (frames/seconds).to_string();
 }
 
@@ -649,6 +693,25 @@ pub fn merge_frames_svt_av1(
         });
 
     Ok(())
+}
+
+pub fn merge_video_parts_dar(input_path: &String, output_path: &String, dar: &String) -> std::process::Output {
+    Command::new("ffmpeg")
+        .args([
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            input_path,
+            "-aspect",
+            dar,
+            "-c",
+            "copy",
+            output_path,
+        ])
+        .output()
+        .expect("failed to execute process")
 }
 
 pub fn merge_video_parts(input_path: &String, output_path: &String) -> std::process::Output {

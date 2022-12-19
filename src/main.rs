@@ -188,7 +188,6 @@ fn main() {
     let mut done_output: String = "".to_string();
     let mut current_file_count = 0;
     let mut total_files: i32;
-    let mut frame_position: u64 = 0;
 
     #[cfg(target_os = "windows")]
     let tmp_frames_path = "temp\\tmp_frames\\";
@@ -244,12 +243,9 @@ fn main() {
         let old_args: Args = serde_json::from_str(&old_args_json).unwrap();
         let previous_file = Path::new(&old_args.inputpath);
 
-/*         println!("{}", previous_file.to_string_lossy());
-        println!("{}", args.inputpath);
-        exit(1); */
-
-        if args.inputpath == previous_file.to_string_lossy() {
-        //if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) {
+        if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) ||
+        args.inputpath == previous_file.to_string_lossy()
+        {
             println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
             // Resume upscale
             let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
@@ -328,8 +324,6 @@ fn main() {
         let vector_files = walk_files(&args.inputpath);
         let mut vector_files_to_process: Vec<String> = Vec::new();
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
-        //vector_files_to_process_frames_count.push(0);
-
         for vector in vector_files {
             let ffprobe_output = Command::new("ffprobe")
             .args([
@@ -362,15 +356,26 @@ fn main() {
 
         let total_frames = vector_files_to_process.clone();
         let mut current_frame_count: u64 = 0;
-        for file in total_frames {
+        for file in total_frames.clone() {
             current_frame_count += u64::from(get_frame_count(&file));
-            //println!("{}", current_frame_count);
-            vector_files_to_process_frames_count.push(u64::from(get_frame_count(&file)));
+            vector_files_to_process_frames_count.push(current_frame_count);
         }
+        println!("{}", current_frame_count);
+
+        if current_frame_count == 0 {
+            vector_files_to_process_frames_count.clear();
+            if vector_files_to_process_frames_count.is_empty() {
+                for file in total_frames.clone() {
+                    current_frame_count += u64::from(get_frame_count_tag(&file));
+                    vector_files_to_process_frames_count.push(current_frame_count);
+                }
+            }
+        }
+
         let total_frames_count = current_frame_count;
 
-        let mut file_frame = 0;
         for file in vector_files_to_process {
+            let dar = get_display_aspect_ratio(&file).to_string();
             current_file_count = current_file_count + 1;
             total_files = count;
             args.inputpath = file.clone();
@@ -415,14 +420,8 @@ fn main() {
             }
 
             args.inputpath = absolute_path(file.clone());
-            frame_position += vector_files_to_process_frames_count[file_frame];
 
-            println!("position:{}", frame_position);
-            println!("length:{}", vector_files_to_process_frames_count.len());
-            file_frame += 1;
-
-            //frame_position = work(&args, current_file_count, total_files, done_output.clone(), output_path.clone(), total_segment_count.clone(), frame_position.clone());
-            work(&args, current_file_count, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), frame_position.clone(), vector_files_to_process_frames_count.clone());
+            work(&args, dar.clone(), current_file_count as i32, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), vector_files_to_process_frames_count.clone());
 
             // Validation
             {
@@ -454,8 +453,12 @@ fn main() {
     let folder_args = "/";
 
     if md.is_file() {
+        let dar = get_display_aspect_ratio(&args.inputpath).to_string();
         current_file_count = 1;
-        let total_frames_count = u64::from(get_frame_count(&args.inputpath));
+        let mut total_frames_count = u64::from(get_frame_count(&args.inputpath));
+        if total_frames_count == 0 {
+            total_frames_count = u64::from(get_frame_count_tag(&args.inputpath));
+        }
         let directory = Path::new(&args.inputpath).parent().unwrap().to_str().unwrap();
         if args.outputpath.is_none() {
             let path = Path::new(&args.inputpath);
@@ -479,7 +482,7 @@ fn main() {
         total_files = 1;
 
         let temp_vector = vec![total_frames_count];
-        work(&args, current_file_count, total_files, done_output, output_path, total_frames_count, frame_position.clone(), temp_vector);
+        work(&args, dar, current_file_count as i32, total_files, done_output, output_path, total_frames_count, temp_vector);
 
         // Validation
         {
@@ -499,13 +502,11 @@ fn main() {
 }
 
 //fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_segment_count: u32, mut frame_position: u64) -> u64 {
-fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, mut frame_position: u64, vector_files_to_process_frames_count: Vec<u64>) {
-
-/*     println!("{}", frame_position);
-    exit(1); */
+fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, vector_files_to_process_frames_count: Vec<u64>) {
     
     let work_now = Instant::now();
 
+    let mut frame_position = 0;
     let filename = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
 
     #[cfg(target_os = "windows")]
@@ -522,8 +523,13 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
     #[cfg(target_os = "linux")]
     let txt_list_path = "/dev/shm/parts.txt";
 
-    let total_frame_count = get_frame_count(&args.inputpath);
-    let original_frame_rate = get_frame_rate(&&args.inputpath);
+    let mut total_frame_count = get_frame_count(&args.inputpath);
+
+    if total_frame_count == 0 {
+        total_frame_count = get_frame_count_tag(&args.inputpath);
+    }
+
+    let original_frame_rate = get_frame_rate(&args.inputpath);
 
     // Calculate steps
     let parts_num = (total_frame_count as f32 / args.segmentsize as f32).ceil() as i32;
@@ -540,7 +546,7 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
         "{}",
         format!(
             "{}/{}, {}, total segments: {}, last segment size: {}, codec: {} (ctrl+c to exit)",
-            current_file_count, total_files, filename, parts_num, last_part_size, _codec
+            current_file_count, total_files, filename.green(), parts_num, last_part_size, _codec
         )
         .yellow()
     );
@@ -564,7 +570,10 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
                     size: frame_number as u32,
                 });
             } else {
-                let c = get_frame_count(&p.display().to_string());
+                let mut c = get_frame_count(&p.display().to_string());
+                if c == 0 {
+                    c = get_frame_count_tag(&p.display().to_string());
+                }
                 if c != frame_number {
                     fs::remove_file(p).expect("could not remove invalid part, maybe in use?");
                     println!("removed invalid segment file [{}] with {} frame size", i, c);
@@ -576,24 +585,13 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
             }
         }
 
-        //println!("{}", total_files);
-        let j = current_file_count;
         let mut count = 0;
-        //let first_file = get_frame_count(&vector_files_to_process.to_string()) as usize;
-        for i in j-1..(total_files) {
-/*             if vector_files_to_process_frames_count[i as usize] == 0 {
-                count += get_frame_count(&filename.to_string()) as usize;
-            } */
-            //println!("{}:{}", i, vector_files_to_process_frames_count[i as usize]);
-            count += vector_files_to_process_frames_count[i as usize];
+        if current_file_count == 1 {
+            count = total_frames_count;
+        } else {
+            count = total_frames_count - vector_files_to_process_frames_count[(current_file_count - 2) as usize];
         }
-        //println!("{}", count);
-        //println!("{}", total_frames_count);
-        //println!("{}", total_frames_count - count);
-        frame_position = (total_frames_count - count) + (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
-        //println!("{}", frame_position);
-        //exit(1);
-
+        frame_position = (total_frames_count - count as u64) + (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
 
         let mut export_handle = thread::spawn(move || {});
         let mut merge_handle = thread::spawn(move || {});
@@ -815,9 +813,6 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
         }
         merge_handle.join().unwrap();
         m.clear().unwrap();
-        //Ok::<u64, ErrorKind>((frame_position));
-        //return Ok(frame_position);
-        //return frame_position;
     }
 
     // Merge video parts
@@ -852,13 +847,28 @@ fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: Str
                     break;
                 }
             } else {
-                merge_video_parts(&txt_list_path.to_string(), &temp_video_path.to_string());
+                if dar == "0" {
+                    merge_video_parts(&txt_list_path.to_string(), &temp_video_path.to_string());
+                }
+                else {
+                    merge_video_parts_dar(&txt_list_path.to_string(), &temp_video_path.to_string(), &dar);
+                }
                 count += 1;
             }
         }
     }
 
-    //Check if there is any invalid bin data in the input file
+    //Check if aspect ratio is correct, if not, convert it
+/*     if dar == "0" {
+        let temp_output_path = format!("temp/temp_aspect.{}", &args.format);
+        convert_aspect_ratio_dar(&temp_video_path.to_string(), &temp_output_path, &dar);
+        fs::remove_file(&temp_video_path).expect("failed to remove file");
+        println!("{}", &temp_output_path);
+        println!("{}", &temp_video_path);
+        fs::rename(&temp_output_path, &temp_video_path).expect("failed to rename file");
+    } */
+
+    //Check if there is invalid bin data in the input file
     let bin_data = get_bin_data(&args.inputpath);
     if bin_data != "" {
         println!("invalid data at index: {}, skipping this one", bin_data);
