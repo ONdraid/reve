@@ -2,12 +2,26 @@ use colored::Colorize;
 use path_clean::PathClean;
 use std::env;
 use std::fs;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
+use std::path::PathBuf;
 use std::path::{Path};
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
 use indicatif::ProgressBar;
+/* use reve::ReveFiles;
+
+mod utils; */
+
+#[derive(Debug)]
+pub struct ReveFiles {
+    id: i32,
+    filename: String,
+    path: String,
+    width: i32,
+    height: i32
+}
 
 pub fn check_bins() {
     #[cfg(target_os = "windows")]
@@ -292,20 +306,20 @@ pub fn find_mimetype(filename :&String) -> String{
 }
 
 pub fn check_ffprobe_output(data: &str, res: &str, file: &str) -> Result<Vec<String>, Error> {
-    let mut arr: Vec<std::string::String> = vec![];
+    let mut to_process: Vec<String> = vec![];
+    //let mut arr: Vec<ReveFiles> = vec![];
     let index = 0;
-    let v: Value = serde_json::from_str(data)?;
-    let height = &v["streams"][0]["height"];
+    let values: Value = serde_json::from_str(data)?;
+    let height = &values["streams"][0]["height"];
     let u8_height = height.as_i64().unwrap();
     let u8_res: i64 = res.parse().unwrap();
 
     if u8_res >= u8_height {
-        arr.insert(index, file.to_string());
-    } else {
-        arr.insert(index, "nope".to_string());
+        //arr.insert(index, PathBuf::from(file).file_name(), &file.to_string());
+        to_process.insert(index, file.to_string());
     }
 
-    return Ok(arr);
+    return Ok(to_process);
 }
 
 pub fn get_frame_count(input_path: &String) -> u32 {

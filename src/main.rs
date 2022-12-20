@@ -15,7 +15,16 @@ use std::str::FromStr;
 use std::{thread, time::Duration};
 use std::time::Instant;
 use std::fs::metadata;
+use rusqlite::{Connection, Result};
 
+#[derive(Debug)]
+pub struct ReveFiles {
+    id: i32,
+    filename: String,
+    path: String,
+    width: i32,
+    height: i32
+}
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
        author = "ONdraid <ondraid.png@gmail.com>",
@@ -159,8 +168,28 @@ fn codec_validation(s: &str) -> Result<String, String> {
     }
 }
 
+fn open_db() -> Result<Connection, rusqlite::Error> {
+    if Path::new("reve.db").exists() {
+        let conn = Connection::open("reve.db")?;
+        return Ok(conn);
+    } else {
+        let conn = Connection::open("reve.db")?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS person (
+                id    INTEGER PRIMARY KEY,
+                name  TEXT NOT NULL,
+                data  BLOB
+            )",
+            (), // empty list of parameters.
+        )?;
+        Ok(conn)
+    }
+}
+
 fn main() {
     let main_now = Instant::now();
+
+    open_db();
 
     let mut args;
     args = Args::parse();
@@ -354,12 +383,19 @@ fn main() {
         let to_process = check_ffprobe_output(json_output, &args.resolution, &vector);
             for file_to_process in to_process {
                 let file = file_to_process[0].to_string();
-                if file == "nope" {
-                } 
-                else {
                 count = count +1;
                 vector_files_to_process.push(file_to_process[0].to_string());
-                }
+/*                 let me = ReveFiles {
+                    id: 0,
+                    filename: "Steven".to_string(),
+                    path: "Steven".to_string(),
+                    width: 0,
+                    height: 0,
+                };
+                conn.execute(
+                    "INSERT INTO person (name, data) VALUES (?1, ?2)",
+                    (&me.filename, &me.path),
+                ); */
             }
         }
         println!("Upscaling {} files (Due to max height resolution: {}p)", count, &args.resolution);
@@ -610,7 +646,8 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
         let expo_style = "[expo][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} exporting segment        {per_sec:<12}";
         let upsc_style = "[upsc][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} upscaling segment        {per_sec:<12}";
         let merg_style = "[merg][{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} merging segment          {per_sec:<12}";
-        
+        let alt_style = "[]{elapsed}] {wide_bar:.cyan/blue} {spinner} {percent}% {human_len:>7}/{human_len:7} {per_sec} {eta}";
+
         let m = MultiProgress::new();
         let pb = m.add(ProgressBar::new(parts_num as u64));
         pb.set_style(
