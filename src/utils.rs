@@ -2,26 +2,13 @@ use colored::Colorize;
 use path_clean::PathClean;
 use std::env;
 use std::fs;
-use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
-use std::path::PathBuf;
 use std::path::{Path};
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
 use indicatif::ProgressBar;
-/* use reve::ReveFiles;
-
-mod utils; */
-
-#[derive(Debug)]
-pub struct ReveFiles {
-    id: i32,
-    filename: String,
-    path: String,
-    width: i32,
-    height: i32
-}
+use rusqlite::{Connection, Result};
 
 pub fn check_bins() {
     #[cfg(target_os = "windows")]
@@ -128,6 +115,113 @@ pub fn check_ffmpeg() -> String {
     let codec_support = String::from(format!("{} {} {}", valid_codecs.libsvt_hevc.to_string(), valid_codecs.libsvtav1.to_string(), valid_codecs.libx265.to_string()));
     return codec_support;
 
+}
+
+#[derive(Debug)]
+pub struct ReveFiles {
+    pub id: i64,
+    pub filepath: String,
+    pub filename: String,
+    pub width: i64,
+    pub height: i64,
+    pub codec: String,
+    pub pix_fmt: String,
+}
+
+pub fn open_or_create_db() -> Result<Connection> {
+    // Check if database exists
+    if Path::new("reve.db").exists() {
+        let conn = Connection::open("reve.db")?;
+    // If database does not exist, create it and add files
+    } else {
+        let conn = Connection::open("reve.db")?;
+        conn.execute(
+            "CREATE TABLE if not exists ReveFiles (
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                filepath  TEXT NOT NULL,
+                filename  TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                codec TEXT NOT NULL,
+                pix_fmt TEXT NOT NULL
+            )",
+            (), // empty list of parameters.
+        )?;
+    }
+    return Ok(Connection::open("reve.db")?);
+}
+
+pub fn open_or_create_db_and_return(filepath: String, filename: String, width: String, height: String, codec: String, pix_fmt: String, ) -> Result<i32> {
+    let mut db_added_count = 0;
+    // Check if database exists
+    if Path::new("reve.db").exists() {
+        let conn = Connection::open("reve.db")?;
+        let me = ReveFiles {
+            id: 0,
+            filepath: filepath.to_string(),
+            filename: filename.to_string(),
+            width: width.parse::<i64>().unwrap(),
+            height: height.parse::<i64>().unwrap(),
+            codec: codec.to_string(),
+            pix_fmt: pix_fmt.to_string(),
+        };
+
+        // Check if file exists in database
+        let mut stmt = conn.prepare("SELECT id, filepath, filename, width, height, codec, pix_fmt FROM ReveFiles WHERE filepath = ?1")?;
+        let mut rows = stmt.query_map(&[&me.filepath], |row| {
+            Ok(ReveFiles {
+                id: row.get(0)?,
+                filepath: row.get(1)?,
+                filename: row.get(2)?,
+                width: row.get(3)?,
+                height: row.get(4)?,
+                codec: row.get(5)?,
+                pix_fmt: row.get(6)?,
+            })
+        })?;
+        let mut count = 0;
+        if let Some(_row) = rows.next() {
+            count += 1;
+        }
+        // If file does not exist in database, add it
+        if count == 0 {
+            conn.execute(
+                "INSERT INTO ReveFiles (id, filepath, filename, width, height, codec, pix_fmt) VALUES (NULL, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (&me.id, &me.filepath, &me.filename, &me.width, &me.height, &me.codec, &me.pix_fmt),
+            )?;
+            db_added_count += 1;
+        }
+    // If database does not exist, create it and add files
+    } else {
+        let conn = Connection::open("reve.db")?;
+        conn.execute(
+            "CREATE TABLE if not exists ReveFiles (
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                filepath  TEXT NOT NULL,
+                filename  TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                codec TEXT NOT NULL,
+                pix_fmt TEXT NOT NULL
+            )",
+            (), // empty list of parameters.
+        )?;
+        let me = ReveFiles {
+            id: 0,
+            filepath: filepath.to_string(),
+            filename: filename.to_string(),
+            width: width.parse::<i64>().unwrap(),
+            height: height.parse::<i64>().unwrap(),
+            codec: codec.to_string(),
+            pix_fmt: pix_fmt.to_string(),
+        };
+        conn.execute(
+            "INSERT INTO ReveFiles (id, filepath, filename, width, height, codec, pix_fmt) VALUES (NULL, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (&me.id, &me.filepath, &me.filename, &me.width, &me.height, &me.codec, &me.pix_fmt),
+        )?;
+        db_added_count += 1;
+    }
+    Ok(db_added_count)
 }
 
 // fn create_dirs() -> std::io::Result<()> {
@@ -305,9 +399,8 @@ pub fn find_mimetype(filename :&String) -> String{
     return res.to_string();
 }
 
-pub fn check_ffprobe_output(data: &str, res: &str, file: &str) -> Result<Vec<String>, Error> {
+/* pub fn check_ffprobe_output(data: &str, res: &str, file: &str) -> Result<Vec<String>, Error> {
     let mut to_process: Vec<String> = vec![];
-    //let mut arr: Vec<ReveFiles> = vec![];
     let index = 0;
     let values: Value = serde_json::from_str(data)?;
     let height = &values["streams"][0]["height"];
@@ -315,8 +408,27 @@ pub fn check_ffprobe_output(data: &str, res: &str, file: &str) -> Result<Vec<Str
     let u8_res: i64 = res.parse().unwrap();
 
     if u8_res >= u8_height {
-        //arr.insert(index, PathBuf::from(file).file_name(), &file.to_string());
+        //to_process.insert(index, values.to_string());
         to_process.insert(index, file.to_string());
+    } else {
+        to_process.insert(index, "nope".to_string());
+        //to_process.insert(index, "nope".to_string());
+    }
+
+    return Ok(to_process);
+} */
+
+pub fn check_ffprobe_output_i8(data: &str, res: &str, file: &str) -> Result<i8, Error> {
+    let mut to_process: i8 = 0;
+    let values: Value = serde_json::from_str(data)?;
+    let height = &values["streams"][0]["height"];
+    let u8_height = height.as_i64().unwrap();
+    let u8_res: i64 = res.parse().unwrap();
+
+    if u8_res >= u8_height {
+        to_process = 1;
+    } else {
+        to_process = 0;
     }
 
     return Ok(to_process);

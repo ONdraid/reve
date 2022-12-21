@@ -15,16 +15,9 @@ use std::str::FromStr;
 use std::{thread, time::Duration};
 use std::time::Instant;
 use std::fs::metadata;
-use rusqlite::{Connection, Result};
+use serde_json::{Value};
+use rusqlite::{Connection, Result, params};
 
-#[derive(Debug)]
-pub struct ReveFiles {
-    id: i32,
-    filename: String,
-    path: String,
-    width: i32,
-    height: i32
-}
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
        author = "ONdraid <ondraid.png@gmail.com>",
@@ -168,28 +161,8 @@ fn codec_validation(s: &str) -> Result<String, String> {
     }
 }
 
-fn open_db() -> Result<Connection, rusqlite::Error> {
-    if Path::new("reve.db").exists() {
-        let conn = Connection::open("reve.db")?;
-        return Ok(conn);
-    } else {
-        let conn = Connection::open("reve.db")?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS person (
-                id    INTEGER PRIMARY KEY,
-                name  TEXT NOT NULL,
-                data  BLOB
-            )",
-            (), // empty list of parameters.
-        )?;
-        Ok(conn)
-    }
-}
-
 fn main() {
     let main_now = Instant::now();
-
-    open_db();
 
     let mut args;
     args = Args::parse();
@@ -345,13 +318,16 @@ fn main() {
     }
 
     let md = metadata(Path::new(&args.inputpath)).unwrap();
-
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
     if md.is_dir() {
         let mut count = 0;
+        let mut db_count = 0;
+        let mut db_count_added = 0;
+        let mut db_count_skipped = 0;
+        let mut db_count_skipped_json_error = 0;
         let walk_count: u64 = walk_count(&args.inputpath) as u64;
         let files_bar = ProgressBar::new(walk_count);
-        let files_style = "[file][{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} analyzed files       eta: {eta:<7}";
+        let files_style = "[file][{elapsed_precise}] [{wide_bar:.green/white}] {percent}% {pos:>7}/{len:7} analyzed files       eta: {eta:<7}";
         files_bar.set_style(
             ProgressStyle::default_bar()
                 .template(files_style)
@@ -363,41 +339,75 @@ fn main() {
         let mut vector_files_to_process: Vec<String> = Vec::new();
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
         for vector in vector_files {
-            files_bar.inc(1);
-            let ffprobe_output = Command::new("ffprobe")
-            .args([
-                "-i",
-                vector.as_str(),
-                "-v",
-                "error",
-                "-select_streams",
-                "v",
-                "-show_entries",
-                "stream=width,height,codec_name,pix_fmt",
-                "-of",
-                "json"
-            ])
-            .output()
-            .unwrap();
-        let json_output = std::str::from_utf8(&ffprobe_output.stdout[..]).unwrap();
-        let to_process = check_ffprobe_output(json_output, &args.resolution, &vector);
-            for file_to_process in to_process {
-                let file = file_to_process[0].to_string();
-                count = count +1;
-                vector_files_to_process.push(file_to_process[0].to_string());
-/*                 let me = ReveFiles {
-                    id: 0,
-                    filename: "Steven".to_string(),
-                    path: "Steven".to_string(),
-                    width: 0,
-                    height: 0,
-                };
-                conn.execute(
-                    "INSERT INTO person (name, data) VALUES (?1, ?2)",
-                    (&me.filename, &me.path),
-                ); */
+            // Check if vector is equal to filename in sqlite "reve.db" skip if identical
+            let mut conn = open_or_create_db().unwrap();
+            let mut stmt = conn.prepare("SELECT * FROM ReveFiles WHERE filepath = :filepath").unwrap();
+            let mut rows = stmt.query_named(&[(":filepath", &vector)]).unwrap();
+            let mut file_exists: bool = false;
+            while let Some(row) = rows.next().unwrap() {
+                file_exists = true;
+            }
+            if file_exists {
+                db_count += 1;
+                files_bar.inc(1);
+            } else {
+                files_bar.inc(1);
+                let ffprobe_output = Command::new("ffprobe")
+                .args([
+                    "-i",
+                    vector.as_str(),
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v",
+                    "-show_entries",
+                    "stream",
+                    "-show_format",
+                    "-show_data_hash",
+                    "sha256",
+                    "-show_streams",
+                    "-of",
+                    "json"
+                ])
+                .output()
+                .unwrap();
+                //.\ffprobe.exe -i '\\192.168.1.99\Data\Animes\Agent AIKa\Saison 2\Agent AIKa - S02E03 - Trial 3 Deep Blue Girl.mkv' -v error -select_streams v -show_entries stream -show_format -show_data_hash sha256 -show_streams -of json
+                let json_output = std::str::from_utf8(&ffprobe_output.stdout[..]).unwrap();
+                if json_output.len() == 0 {
+                    db_count_skipped_json_error += 1;
+                    continue;
+                } else {
+                    let values: Value = serde_json::from_str(json_output).unwrap();
+                    let filepath = values["format"]["filename"].as_str().unwrap();
+                    let filename = Path::new(filepath).file_name().unwrap().to_str().unwrap();
+                    let size = values["format"]["size"].as_str().unwrap_or("NaN");
+                    let duration = values["format"]["duration"].as_str().unwrap_or("NaN");
+                    let format = values["format"]["format_name"].as_str().unwrap_or("NaN");
+                    let width = values["streams"][0]["width"].as_i64().unwrap_or(0);
+                    let height = values["streams"][0]["height"].as_i64().unwrap_or(0);
+                    let codec = values["streams"][0]["codec_name"].as_str().unwrap_or("NaN");
+                    let pix_fmt = values["streams"][0]["pix_fmt"].as_str().unwrap_or("NaN");
+                    let checksum = values["streams"][0]["extradata_hash"].as_str().unwrap_or("NaN");
+                    let file_metadata = fs::metadata(filepath);
+                    let metadata_size = file_metadata.unwrap().len();
+
+                    let to_process = check_ffprobe_output_i8(json_output, &args.resolution, &vector);
+                    if to_process.unwrap() == 1 {
+                        let file = vector.clone();
+                        count = count +1;
+                        db_count = db_count +1;
+                        vector_files_to_process.push(file.clone());
+                        let open_or_create_db_result = open_or_create_db_and_return(filepath.to_string(), filename.to_string(), width.to_string(), height.to_string(), codec.to_string(), pix_fmt.to_string());
+                        db_count_added += open_or_create_db_result.unwrap();
+                    } else {
+                        db_count_skipped += 1;
+                    }
+                }
             }
         }
+
+        files_bar.finish_and_clear();
+        println!("Added {} files to the database ({} already present, {} skipped due to json error, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped_json_error, db_count_skipped, &args.resolution);
         println!("Upscaling {} files (Due to max height resolution: {}p)", count, &args.resolution);
 
         let total_frames = vector_files_to_process.clone();
@@ -406,7 +416,7 @@ fn main() {
             current_frame_count += u64::from(get_frame_count(&file));
             vector_files_to_process_frames_count.push(current_frame_count);
         }
-        println!("{}", current_frame_count);
+        //println!("{}", current_frame_count);
 
         if current_frame_count == 0 {
             vector_files_to_process_frames_count.clear();
@@ -528,7 +538,36 @@ fn main() {
         total_files = 1;
 
         let temp_vector = vec![total_frames_count];
-        work(&args, dar, current_file_count as i32, total_files, done_output, output_path, total_frames_count, temp_vector);
+
+        let ffprobe_output = Command::new("ffprobe")
+        .args([
+            "-i",
+            args.inputpath.as_str(),
+            "-v",
+            "error",
+            "-select_streams",
+            "v",
+            "-show_entries",
+            "stream",
+            "-show_format",
+            "-show_data_hash",
+            "sha256",
+            "-show_streams",
+            "-of",
+            "json"
+        ])
+        .output()
+        .unwrap();
+        //.\ffprobe.exe -i '\\192.168.1.99\Data\Animes\Agent AIKa\Saison 2\Agent AIKa - S02E03 - Trial 3 Deep Blue Girl.mkv' -v error -select_streams v -show_entries stream -show_format -show_data_hash sha256 -show_streams -of json
+        let json_output = std::str::from_utf8(&ffprobe_output.stdout[..]).unwrap();
+        let height = check_ffprobe_output_i8(json_output, &args.resolution, &args.inputpath);
+        if height.unwrap() == 1 {
+            work(&args, dar, current_file_count as i32, total_files, done_output, output_path, total_frames_count, temp_vector);
+        } else {
+            println!("{} is bigger than {}p", args.inputpath, args.resolution);
+            println!("Set argument -r to a higher value");
+            exit(1);
+        }
 
         // Validation
         {
