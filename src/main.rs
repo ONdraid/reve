@@ -240,25 +240,36 @@ fn main() {
         std::process::exit(1);
     }
 
-    exit(1);
-
     if Path::new(&args_path).exists() {
         //Check if previous file is used, if yes, continue upscale without asking
         let old_args_json = fs::read_to_string(&args_path).expect("Unable to read file");
         let old_args: Args = serde_json::from_str(&old_args_json).unwrap();
         let previous_file = Path::new(&old_args.inputpath);
+        let previous_file_name = previous_file.file_name().unwrap().to_str().unwrap();
+        let md = fs::metadata(&args.inputpath).unwrap();
 
-        if args.inputpath.contains(previous_file.file_name().unwrap().to_str().unwrap()) ||
-        args.inputpath == previous_file.to_string_lossy()
+        // Check if same file is used as previous upscale and if yes, resume
+        if args.inputpath == previous_file.to_string_lossy() || args.inputpath.contains(previous_file_name)
         {
-            println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
-            // Resume upscale
-            let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
-            args = serde_json::from_str(&args_json).unwrap();
-            env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
-            clear_dirs(&[tmp_frames_path, out_frames_path]);
-            clear().expect("failed to clear screen");
-            println!("{}", "resuming upscale".to_string().green());
+            if md.is_file() {
+                println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
+                // Resume upscale
+                let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
+                args = serde_json::from_str(&args_json).unwrap();
+                env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
+                clear_dirs(&[tmp_frames_path, out_frames_path]);
+                clear().expect("failed to clear screen");
+                println!("{}", "resuming upscale".to_string().green());
+            } else if md.is_dir() {
+                println!("Same folder! '{}' Resuming next file...", previous_file.file_name().unwrap().to_str().unwrap());
+                // Resume upscale
+                let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
+                args = serde_json::from_str(&args_json).unwrap();
+                env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
+                clear_dirs(&[tmp_frames_path, out_frames_path]);
+                clear().expect("failed to clear screen");
+                println!("{}", "resuming upscale".to_string().green());
+            }
         } else {
             // Remove and start new
             args = Args::parse();
