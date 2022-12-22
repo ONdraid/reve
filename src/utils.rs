@@ -64,6 +64,7 @@ pub fn check_bins() {
     }
 }
 
+// Check if --enable-libsvtav1 or --enable-libsvthevc or libx265 are enabled in ffmpeg, choose the best one
 pub fn check_ffmpeg() -> String {
     let output = Command::new("ffmpeg").stdout(Stdio::piped()).output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
@@ -131,7 +132,7 @@ pub struct ReveFiles {
 pub fn open_or_create_db() -> Result<Connection> {
     // Check if database exists
     if Path::new("reve.db").exists() {
-        let conn = Connection::open("reve.db")?;
+        Connection::open("reve.db")?;
     // If database does not exist, create it and add files
     } else {
         let conn = Connection::open("reve.db")?;
@@ -399,27 +400,8 @@ pub fn find_mimetype(filename :&String) -> String{
     return res.to_string();
 }
 
-/* pub fn check_ffprobe_output(data: &str, res: &str, file: &str) -> Result<Vec<String>, Error> {
-    let mut to_process: Vec<String> = vec![];
-    let index = 0;
-    let values: Value = serde_json::from_str(data)?;
-    let height = &values["streams"][0]["height"];
-    let u8_height = height.as_i64().unwrap();
-    let u8_res: i64 = res.parse().unwrap();
-
-    if u8_res >= u8_height {
-        //to_process.insert(index, values.to_string());
-        to_process.insert(index, file.to_string());
-    } else {
-        to_process.insert(index, "nope".to_string());
-        //to_process.insert(index, "nope".to_string());
-    }
-
-    return Ok(to_process);
-} */
-
-pub fn check_ffprobe_output_i8(data: &str, res: &str, file: &str) -> Result<i8, Error> {
-    let mut to_process: i8 = 0;
+pub fn check_ffprobe_output_i8(data: &str, res: &str) -> Result<i8, Error> {
+    let to_process;
     let values: Value = serde_json::from_str(data)?;
     let height = &values["streams"][0]["height"];
     let u8_height = height.as_i64().unwrap();
