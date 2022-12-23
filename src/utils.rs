@@ -8,7 +8,13 @@ use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
 use indicatif::ProgressBar;
-use rusqlite::{Connection, Result};
+use std::process::Output;
+use serde_json::from_str;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::{vec};
+use rusqlite::{params, Connection, Result};
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
 
 pub fn check_bins() {
     #[cfg(target_os = "windows")]
@@ -61,6 +67,139 @@ pub fn check_bins() {
     } else {
         println!("{}", String::from("models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
         std::process::exit(1);
+    }
+}
+
+pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(Vec<AtomicI32>, Arc<Mutex<Vec<std::string::String>>>)> {
+    let count: AtomicI32 = AtomicI32::new(0);
+    let db_count: AtomicI32 = AtomicI32::new(0);
+    let db_count_added: AtomicI32 = AtomicI32::new(0);
+    let db_count_skipped: AtomicI32 = AtomicI32::new(0);
+    let files_to_process: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let conn = Connection::open("reve.db")?;
+    conn.execute("CREATE TABLE IF NOT EXISTS video_info (
+                    filename TEXT PRIMARY KEY,
+                    filepath TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    duration REAL NOT NULL,
+                    pixel_format TEXT NOT NULL,
+                    display_aspect_ratio TEXT NOT NULL,
+                    sample_aspect_ratio TEXT NOT NULL,
+                    format TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    bitrate INTEGER NOT NULL,
+                    codec TEXT NOT NULL,
+                    resolution TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    hash TEXT NOT NULL
+                  )", params![])?;
+
+    let filenames = files;
+    let conn = Arc::new(Mutex::new(conn));
+
+    filenames.par_iter().for_each(|filename| {
+        let conn = conn.clone();
+        let conn = conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT filename FROM video_info WHERE filepath=?1").unwrap();
+        let file_exists: bool = stmt.exists(params![filename]).unwrap();
+        if !file_exists {
+            let output = Command::new("ffprobe")
+                .args([
+                    "-i",
+                    filename,
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v",
+                    "-show_entries",
+                    "stream",
+                    "-show_format",
+                    "-show_data_hash",
+                    "sha256",
+                    "-show_streams",
+                    "-of",
+                    "json"
+                ])
+                .output()
+                .expect("failed to execute process");
+            let json_value: Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap();
+            let json_str = json_value.to_string();
+            if &json_str.len() >= &1 {
+                let values: Value = json_value;
+                let _width = values["streams"][0]["width"].as_i64().unwrap_or(0);
+                let _height = values["streams"][0]["height"].as_i64().unwrap_or(0);
+                let filepath = values["format"]["filename"].as_str().unwrap();
+                let filename = Path::new(filepath).file_name().unwrap().to_str().unwrap();
+                let _size = values["format"]["size"].as_str().unwrap_or("NaN");
+                let bitrate = values["format"]["bit_rate"].as_str().unwrap_or("NaN");
+                let duration = values["format"]["duration"].as_str().unwrap_or("NaN");
+                let format = values["format"]["format_name"].as_str().unwrap_or("NaN");
+                let width = values["streams"][0]["width"].as_i64().unwrap_or(0);
+                let height = values["streams"][0]["height"].as_i64().unwrap_or(0);
+                let codec = values["streams"][0]["codec_name"].as_str().unwrap_or("NaN");
+                let pix_fmt = values["streams"][0]["pix_fmt"].as_str().unwrap_or("NaN");
+                let checksum = values["streams"][0]["extradata_hash"].as_str().unwrap_or("NaN");
+                let dar = values["streams"][0]["display_aspect_ratio"].as_str().unwrap_or("NaN");
+                let sar = values["streams"][0]["sample_aspect_ratio"].as_str().unwrap_or("NaN");
+                let file_metadata = fs::metadata(filepath);
+                let metadata_size = file_metadata.unwrap().len();
+            
+                if height <= res.parse::<i64>().unwrap() {
+                    conn.execute(
+                        "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, metadata_size, bitrate, codec, res, "pending", checksum],
+                    ).unwrap();
+                    count.fetch_add(1, Ordering::SeqCst);
+                    db_count_added.fetch_add(1, Ordering::SeqCst);
+                } else {
+                    db_count_skipped.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        } else {
+            db_count.fetch_add(1, Ordering::SeqCst);
+        }
+
+        let height = get_ffprobe_output(filename).unwrap();
+        let height_value = height["streams"][0]["height"].as_i64().unwrap_or(0);
+        if height_value <= res.parse::<i64>().unwrap() {
+            files_to_process.lock().unwrap().push(filename.to_string());
+        }
+
+        bar.inc(1);
+    });
+
+    // return all the counters
+    Ok((vec![count, db_count, db_count_added, db_count_skipped], files_to_process))
+}
+
+pub fn get_ffprobe_output(filename: &str) -> Result<Value, String> {
+    let output: Output = Command::new("ffprobe")
+    .args([
+        "-i",
+        filename,
+        "-v",
+        "error",
+        "-select_streams",
+        "v",
+        "-show_entries",
+        "stream",
+        "-show_format",
+        "-show_data_hash",
+        "sha256",
+        "-show_streams",
+        "-of",
+        "json"
+    ])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        let output_str = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+        let value: Value = from_str(&output_str).map_err(|e| e.to_string())?;
+        Ok(value)
+    } else {
+        Err(String::from_utf8(output.stderr).unwrap_or_else(|e| e.to_string()))
     }
 }
 
@@ -127,102 +266,6 @@ pub struct ReveFiles {
     pub height: i64,
     pub codec: String,
     pub pix_fmt: String,
-}
-
-pub fn open_or_create_db() -> Result<Connection> {
-    // Check if database exists
-    if Path::new("reve.db").exists() {
-        Connection::open("reve.db")?;
-    // If database does not exist, create it and add files
-    } else {
-        let conn = Connection::open("reve.db")?;
-        conn.execute(
-            "CREATE TABLE if not exists ReveFiles (
-                id    INTEGER PRIMARY KEY AUTOINCREMENT,
-                filepath  TEXT NOT NULL,
-                filename  TEXT NOT NULL,
-                width INTEGER NOT NULL,
-                height INTEGER NOT NULL,
-                codec TEXT NOT NULL,
-                pix_fmt TEXT NOT NULL
-            )",
-            (), // empty list of parameters.
-        )?;
-    }
-    return Ok(Connection::open("reve.db")?);
-}
-
-pub fn open_or_create_db_and_return(filepath: String, filename: String, width: String, height: String, codec: String, pix_fmt: String, ) -> Result<i32> {
-    let mut db_added_count = 0;
-    // Check if database exists
-    if Path::new("reve.db").exists() {
-        let conn = Connection::open("reve.db")?;
-        let me = ReveFiles {
-            id: 0,
-            filepath: filepath.to_string(),
-            filename: filename.to_string(),
-            width: width.parse::<i64>().unwrap(),
-            height: height.parse::<i64>().unwrap(),
-            codec: codec.to_string(),
-            pix_fmt: pix_fmt.to_string(),
-        };
-
-        // Check if file exists in database
-        let mut stmt = conn.prepare("SELECT id, filepath, filename, width, height, codec, pix_fmt FROM ReveFiles WHERE filepath = ?1")?;
-        let mut rows = stmt.query_map(&[&me.filepath], |row| {
-            Ok(ReveFiles {
-                id: row.get(0)?,
-                filepath: row.get(1)?,
-                filename: row.get(2)?,
-                width: row.get(3)?,
-                height: row.get(4)?,
-                codec: row.get(5)?,
-                pix_fmt: row.get(6)?,
-            })
-        })?;
-        let mut count = 0;
-        if let Some(_row) = rows.next() {
-            count += 1;
-        }
-        // If file does not exist in database, add it
-        if count == 0 {
-            conn.execute(
-                "INSERT INTO ReveFiles (id, filepath, filename, width, height, codec, pix_fmt) VALUES (NULL, ?2, ?3, ?4, ?5, ?6, ?7)",
-                (&me.id, &me.filepath, &me.filename, &me.width, &me.height, &me.codec, &me.pix_fmt),
-            )?;
-            db_added_count += 1;
-        }
-    // If database does not exist, create it and add files
-    } else {
-        let conn = Connection::open("reve.db")?;
-        conn.execute(
-            "CREATE TABLE if not exists ReveFiles (
-                id    INTEGER PRIMARY KEY AUTOINCREMENT,
-                filepath  TEXT NOT NULL,
-                filename  TEXT NOT NULL,
-                width INTEGER NOT NULL,
-                height INTEGER NOT NULL,
-                codec TEXT NOT NULL,
-                pix_fmt TEXT NOT NULL
-            )",
-            (), // empty list of parameters.
-        )?;
-        let me = ReveFiles {
-            id: 0,
-            filepath: filepath.to_string(),
-            filename: filename.to_string(),
-            width: width.parse::<i64>().unwrap(),
-            height: height.parse::<i64>().unwrap(),
-            codec: codec.to_string(),
-            pix_fmt: pix_fmt.to_string(),
-        };
-        conn.execute(
-            "INSERT INTO ReveFiles (id, filepath, filename, width, height, codec, pix_fmt) VALUES (NULL, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (&me.id, &me.filepath, &me.filename, &me.width, &me.height, &me.codec, &me.pix_fmt),
-        )?;
-        db_added_count += 1;
-    }
-    Ok(db_added_count)
 }
 
 // fn create_dirs() -> std::io::Result<()> {

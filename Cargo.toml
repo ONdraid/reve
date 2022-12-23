@@ -15,3 +15,4 @@ indicatif = "0.17.1"
 path-clean = "0.1.0"
 walkdir = "2.3.2"
 rusqlite = { version = "0.28.0", features = ["bundled"] }
+rayon = "1.6.1"
