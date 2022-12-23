@@ -78,7 +78,8 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
     let files_to_process: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let conn = Connection::open("reve.db")?;
     conn.execute("CREATE TABLE IF NOT EXISTS video_info (
-                    filename TEXT PRIMARY KEY,
+                    id INTEGER PRIMARY KEY,
+                    filename TEXT NOT NULL,
                     filepath TEXT NOT NULL,
                     width INTEGER NOT NULL,
                     height INTEGER NOT NULL,
@@ -99,10 +100,11 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
     let conn = Arc::new(Mutex::new(conn));
 
     filenames.par_iter().for_each(|filename| {
+        let real_filename = Path::new(filename).file_name().unwrap().to_str().unwrap();
         let conn = conn.clone();
         let conn = conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT filename FROM video_info WHERE filepath=?1").unwrap();
-        let file_exists: bool = stmt.exists(params![filename]).unwrap();
+        let mut stmt = conn.prepare("SELECT * FROM video_info WHERE filename=?1").unwrap();
+        let file_exists: bool = stmt.exists(params![real_filename]).unwrap();
         if !file_exists {
             let output = Command::new("ffprobe")
                 .args([
@@ -148,7 +150,7 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
                 if height <= res.parse::<i64>().unwrap() {
                     conn.execute(
                         "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, metadata_size, bitrate, codec, res, "pending", checksum],
+                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, metadata_size, bitrate, codec, res, "pending", checksum]
                     ).unwrap();
                     count.fetch_add(1, Ordering::SeqCst);
                     db_count_added.fetch_add(1, Ordering::SeqCst);
@@ -171,6 +173,12 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
 
     // return all the counters
     Ok((vec![count, db_count, db_count_added, db_count_skipped], files_to_process))
+}
+
+pub fn update_db_status(conn: &Connection, filename: &str, status: &str) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare("UPDATE video_info SET status=?1 WHERE filename=?2")?;
+    stmt.execute(params![status, filename])?;
+    Ok(())
 }
 
 pub fn get_ffprobe_output(filename: &str) -> Result<Value, String> {
@@ -255,17 +263,6 @@ pub fn check_ffmpeg() -> String {
     let codec_support = String::from(format!("{} {} {}", valid_codecs.libsvt_hevc.to_string(), valid_codecs.libsvtav1.to_string(), valid_codecs.libx265.to_string()));
     return codec_support;
 
-}
-
-#[derive(Debug)]
-pub struct ReveFiles {
-    pub id: i64,
-    pub filepath: String,
-    pub filename: String,
-    pub width: i64,
-    pub height: i64,
-    pub codec: String,
-    pub pix_fmt: String,
 }
 
 // fn create_dirs() -> std::io::Result<()> {

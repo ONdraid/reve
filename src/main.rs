@@ -16,6 +16,7 @@ use std::{thread, time::Duration};
 use std::time::Instant;
 use std::fs::metadata;
 use rusqlite::Result;
+use rusqlite::{Connection};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -115,7 +116,8 @@ fn output_validation_dir(s: &str) -> Result<String, String> {
     let p = Path::new(s);
 
     if p.exists() {
-        return Ok("already exists".to_string());    }
+        return Ok("already exists".to_string());
+    }
     else {
         match p.extension().unwrap().to_str().unwrap() {
             "mp4" | "mkv" | "avi" => Ok(s.to_string()),
@@ -373,7 +375,6 @@ fn main() {
             current_frame_count += u64::from(get_frame_count(&file));
             vector_files_to_process_frames_count.push(current_frame_count);
         }
-        //println!("{}", current_frame_count);
 
         if current_frame_count == 0 {
             vector_files_to_process_frames_count.clear();
@@ -390,7 +391,7 @@ fn main() {
         for file in vector_files_to_process.clone() {
             let dar = get_display_aspect_ratio(&file).to_string();
             current_file_count = current_file_count + 1;
-            total_files = count;
+            total_files = vector_files_to_process.len() as i32;
             args.inputpath = file.clone();
             clear_dirs(&[tmp_frames_path, out_frames_path]);
 
@@ -400,14 +401,18 @@ fn main() {
                 let filename_no_ext = path.file_stem().unwrap().to_string_lossy();
                 let filename_codec = &args.codec;
                 let directory = absolute_path(path.parent().unwrap());
+                #[cfg(target_os = "windows")]
                 let directory_path = format!("{}{}", directory.trim_end_matches("."), "\\");
+                #[cfg(target_os = "linux")]
+                let directory_path = format!("{}{}", directory.trim_end_matches("."), "/");
                 output_path = format!("{}{}.{}.{}", directory_path, filename_no_ext, filename_codec, filename_ext);
                 done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
                 match output_validation_dir(&output_path) {
                     Err(e) => {
                         println!("{:?}", e);
                         exit(1);
-                    },                    Ok(s) => if s.contains("already exists") {
+                    },
+                    Ok(s) => if s.contains("already exists") {
                         println!("{} already exists, skipping", done_output);
                         continue;
                     }
@@ -545,7 +550,7 @@ fn main() {
 
 //fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_segment_count: u32, mut frame_position: u64) -> u64 {
 fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, vector_files_to_process_frames_count: Vec<u64>) {
-    
+
     let work_now = Instant::now();
 
     let mut frame_position;
@@ -920,6 +925,23 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
     } else {
         println!("copying streams");
         copy_streams(&temp_video_path.to_string(), &args.inputpath, &output_path);
+    }
+
+    //Check if file has been copied successfully to output path, if so, update database
+    let p = Path::new(&output_path);
+    if p.exists() {
+        if fs::File::open(p).unwrap().metadata().unwrap().len() == 0 {
+            panic!("failed to copy streams");
+        }
+        // update sqlite database "reve.db" entry with status "done" using update_db_status function;
+        let conn = Connection::open("reve.db").unwrap();
+        let db_status = update_db_status(&conn, &args.inputpath, "done");
+        match db_status {
+            Ok(_) => println!("updated database"),
+            Err(e) => println!("failed to update database: {}", e),
+        }
+    } else {
+        panic!("failed to copy streams");
     }
 
     clear().expect("failed to clear screen");
