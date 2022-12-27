@@ -16,3 +16,5 @@ path-clean = "0.1.0"
 walkdir = "2.3.2"
 rusqlite = { version = "0.28.0", features = ["bundled"] }
 rayon = "1.6.1"
+fs_extra = "1.2.0"
+merkle_hash = "3.0.1"

@@ -83,6 +83,14 @@ struct Segment {
 
 fn input_validation(s: &str) -> Result<String, String> {
     let p = Path::new(s);
+
+    // if the path in p contains a double quote, remove it and everything after it
+    if p.to_str().unwrap().contains("\"") {
+        let mut s = p.to_str().unwrap().to_string();
+        s.truncate(s.find("\"").unwrap());
+        return Ok(s);
+    }
+
     if p.is_dir() {
         return Ok(String::from_str(s).unwrap());
     }
@@ -335,7 +343,7 @@ fn main() {
     let md = metadata(Path::new(&args.inputpath)).unwrap();
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
     if md.is_dir() {
-        let count;
+        let mut count;
         let db_count;
         let db_count_added;
         let db_count_skipped;
@@ -352,18 +360,43 @@ fn main() {
         let vector_files = walk_files(&args.inputpath);
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
 
-        let result = add_to_db(vector_files.clone(), args.resolution.clone(), files_bar.clone()).unwrap();
+        let result = add_to_db(vector_files.clone(), args.resolution.clone(), files_bar.clone(), &args.inputpath.clone()).unwrap();
         // get the counters from the add_to_db function
         let counters = result.0;
         let to_process = result.1;
         // get the vector of files to process
-        let vector_files_to_process = to_process.lock().unwrap().clone();
+        let mut vector_files_to_process = to_process.lock().unwrap().clone();
 
         // count, db_count, db_count_added, db_count_skipped
         count = format!("{:?}", counters[0]).parse::<i32>().unwrap();
         db_count = format!("{:?}", counters[1]).parse::<u64>().unwrap();
         db_count_added = format!("{:?}", counters[2]).parse::<u64>().unwrap();
         db_count_skipped = format!("{:?}", counters[3]).parse::<u64>().unwrap();
+
+        if count == 0 && vector_files_to_process.len() != 0 {
+            count = vector_files_to_process.len() as i32;
+            current_file_count = db_count - vector_files_to_process.len() as u64;
+        }
+
+        if vector_files_to_process.len() == 0 {
+            // get all the files from the database that contain input_path's folder parent in column filepath and status 'pending' ins status column and add them to the vector_files_to_process
+            let conn = Connection::open("reve.db").unwrap();
+            let input = args.inputpath.clone();
+            let mut stmt = conn.prepare("SELECT * FROM video_info WHERE status = 'pending' AND filepath LIKE ?").unwrap();
+            let mut rows = stmt.query(&[&format!("%{}%", input)]).unwrap();
+            while let Some(row) = rows.next().unwrap() {
+                vector_files_to_process.push(row.get(2).unwrap());
+            }
+        }
+
+        let frame_count_bar = ProgressBar::new(vector_files_to_process.len() as u64);
+        let frame_count_style = "[frm_cnt][{elapsed_precise}] [{wide_bar:.green/white}] {percent}% {pos:>7}/{len:7} counted frames       eta: {eta:<7}";
+        frame_count_bar.set_style(
+            ProgressStyle::default_bar()
+                .template(frame_count_style)
+                .unwrap()
+                .progress_chars("#>-"),
+        );
 
         files_bar.finish_and_clear();
         println!("Added {} files to the database ({} already present, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped, &args.resolution);
@@ -374,6 +407,7 @@ fn main() {
         for file in total_frames.clone() {
             current_frame_count += u64::from(get_frame_count(&file));
             vector_files_to_process_frames_count.push(current_frame_count);
+            frame_count_bar.inc(1);
         }
 
         if current_frame_count == 0 {
@@ -381,6 +415,17 @@ fn main() {
             if vector_files_to_process_frames_count.is_empty() {
                 for file in total_frames.clone() {
                     current_frame_count += u64::from(get_frame_count_tag(&file));
+                    vector_files_to_process_frames_count.push(current_frame_count);
+                }
+            }
+        }
+
+        // current_frame_count = 0; then get the frame count by dividing the duration by the fps
+        if current_frame_count == 0 {
+            vector_files_to_process_frames_count.clear();
+            if vector_files_to_process_frames_count.is_empty() {
+                for file in total_frames.clone() {
+                    current_frame_count += u64::from(get_frame_count_duration(&file));
                     vector_files_to_process_frames_count.push(current_frame_count);
                 }
             }
@@ -438,6 +483,13 @@ fn main() {
             }
 
             args.inputpath = absolute_path(file.clone());
+
+            println!("Processing file {} of {} ({}):", current_file_count, total_files, done_output);
+            println!("Input path: {}", args.inputpath);
+            println!("Output path: {}", output_path);
+            println!("total_frames_count: {}", total_frames_count);
+            println!("vector_files_to_process_frames_count: {:?}", vector_files_to_process_frames_count);
+            //exit(1);
 
             work(&args, dar.clone(), current_file_count as i32, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), vector_files_to_process_frames_count.clone());
 
@@ -574,6 +626,10 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
 
     if total_frame_count == 0 {
         total_frame_count = get_frame_count_tag(&args.inputpath);
+    }
+
+    if total_frame_count == 0 {
+        total_frame_count = get_frame_count_duration(&args.inputpath);
     }
 
     let original_frame_rate = get_frame_rate(&args.inputpath);

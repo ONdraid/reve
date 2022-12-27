@@ -4,6 +4,7 @@ use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::path::{Path};
+use std::process::exit;
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 use serde_json::{Value};
@@ -70,13 +71,33 @@ pub fn check_bins() {
     }
 }
 
-pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(Vec<AtomicI32>, Arc<Mutex<Vec<std::string::String>>>)> {
+pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar, input_path: &String) -> Result<(Vec<AtomicI32>, Arc<Mutex<Vec<std::string::String>>>)> {
     let count: AtomicI32 = AtomicI32::new(0);
     let db_count: AtomicI32 = AtomicI32::new(0);
     let db_count_added: AtomicI32 = AtomicI32::new(0);
     let db_count_skipped: AtomicI32 = AtomicI32::new(0);
     let files_to_process: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let conn = Connection::open("reve.db")?;
+/*     conn.execute("CREATE TABLE IF NOT EXISTS video_info (
+                    id INTEGER PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    filepath TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    duration REAL NOT NULL,
+                    pixel_format TEXT NOT NULL,
+                    display_aspect_ratio TEXT NOT NULL,
+                    sample_aspect_ratio TEXT NOT NULL,
+                    format TEXT NOT NULL,
+                    size BIGINT NOT NULL,
+                    frame_count BIGINT NOT NULL,
+                    folder_size BIGINT NOT NULL,
+                    bitrate BIGINT NOT NULL,
+                    codec TEXT NOT NULL,
+                    resolution TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    hash TEXT NOT NULL
+                )", params![])?; */
     conn.execute("CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
                     filename TEXT NOT NULL,
@@ -88,16 +109,154 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
                     display_aspect_ratio TEXT NOT NULL,
                     sample_aspect_ratio TEXT NOT NULL,
                     format TEXT NOT NULL,
-                    size INTEGER NOT NULL,
-                    bitrate INTEGER NOT NULL,
+                    size BIGINT NOT NULL,
+                    folder_size BIGINT NOT NULL,
+                    bitrate BIGINT NOT NULL,
                     codec TEXT NOT NULL,
                     resolution TEXT NOT NULL,
                     status TEXT NOT NULL,
                     hash TEXT NOT NULL
                   )", params![])?;
 
-    let filenames = files;
-    let conn = Arc::new(Mutex::new(conn));
+    let mut filenames = files;
+
+    // get all items in db
+    let mut stmt = conn.prepare("SELECT * FROM video_info")?;
+    let mut rows = stmt.query_map(params![], |row| {
+        //Ok((row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?, row.get(17)?))
+        Ok((row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?))
+    }).unwrap();
+    //let mut db_items: Vec<(String, String, i32, i32, f64, String, String, String, String, i64, i64, i64, i64, String, String, String, String)> = Vec::new();
+    let mut db_items: Vec<(String, String, i32, i32, f64, String, String, String, String, i64, i64, i64, String, String, String, String)> = Vec::new();
+    while let Some(row) = rows.next() {
+        let row = row.unwrap();
+        db_items.push(row);
+    }
+    // get all items from filenames that are not in db
+    let mut filenames_to_process: Vec<String> = Vec::new();
+    for filename in filenames {
+        let real_filename = Path::new(&filename).file_name().unwrap().to_str().unwrap();
+        let mut found = false;
+        for item in &db_items {
+            if item.0 == real_filename {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            filenames_to_process.push(filename);
+        }
+    }
+
+    // print count for all items in filenames_to_process and return filenames with all items in db removed
+    println!("Found {} files not in database", filenames_to_process.len());
+    filenames = filenames_to_process.clone();
+
+/*     // get size of input_path folder and all subfolders and files
+    let mut total_size: u64 = 0;
+    let folder = input_path.to_string();
+    let mut filenames: Vec<String> = Vec::new();
+    let mut folders: Vec<String> = Vec::new();
+    folders.push(folder);
+    while folders.len() > 0 {
+        let folder = folders.pop().unwrap();
+        let mut path = Path::new(&folder).to_path_buf();
+        let mut entries = fs::read_dir
+        (&path).unwrap();
+        while let Some(entry) = entries.next() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push(path.to_str().unwrap().to_string());
+            } else {
+                filenames.push(path.to_str().unwrap().to_string());
+            }
+        }
+    }
+    for filename in &filenames {
+        let metadata = fs::metadata(filename).unwrap();
+        total_size += metadata.len();
+    }
+
+    println!("Total size: {}", total_size);
+    // print a human readable size of the total size as GB
+    // trim to 2 decimal places
+    let total_size = total_size as f64;
+    let total_size = total_size / 1000000000.0;
+    let total_size = format!("{:.2}", total_size);
+    println!("Total size: {} GB", total_size); */
+
+/*     // TODO get total folder size, then of each subfolder, then of each file, then add to db
+    // get size of input folder
+    let mut total_size: u64 = 0;
+    for filename in &filenames {
+        let metadata = fs::metadata(filename).unwrap();
+        total_size += metadata.len();
+    }
+    println!("Total size: {}", total_size);
+
+    // get a list of all folders in the input folder given as path in input_path
+    let mut input_folders: Vec<String> = Vec::new();
+    for filename in &filenames {
+        let mut path = Path::new(filename).to_path_buf();
+        path.pop();
+        let folder = path.to_str().unwrap();
+        if !input_folders.contains(&folder.to_string()) {
+            input_folders.push(folder.to_string());
+        }
+    }
+/*     if input_folders.len() == 0 {
+        // add the folder itself to the list and get its size   
+    }
+    println!("Input subfolders: {}", input_folders.len()); */
+    
+    // get the size of each unique folder in vec input_folders, 
+    // use function find_mimetype
+    let mut folder_sizes: Vec<(String, u64)> = Vec::new();
+    for folder in &input_folders {
+        let mut folder_size: u64 = 0;
+        for filename in &filenames {
+            let mut path = Path::new(filename).to_path_buf();
+            path.pop();
+            let folder2 = path.to_str().unwrap();
+            if folder == folder2 {
+                let mime_type = find_mimetype(filename);
+                if mime_type == "VIDEO" {
+                    let metadata = fs::metadata(filename).unwrap();
+                    folder_size += metadata.len();
+                }
+            }
+        }
+        folder_sizes.push((folder.to_string(), folder_size));
+    }
+    println!("Folder sizes: {}", folder_sizes.len());
+
+    // print all folder sizes
+    for folder in &folder_sizes {
+        println!("{}: {}", folder.0, folder.1);
+    }
+
+    // create new table folder_info in db if not already exists with id, folder, size
+    // add each folder in folder_sizes to db if not already exists
+    conn.execute("CREATE TABLE IF NOT EXISTS folder_info (
+                    id INTEGER PRIMARY KEY,
+                    folder TEXT NOT NULL,
+                    size INTEGER NOT NULL
+                  )", params![])?;
+    for folder in &folder_sizes {
+        let mut stmt = conn.prepare("SELECT * FROM folder_info WHERE folder=?1").unwrap();
+        let folder_exists: bool = stmt.exists(params![folder.0]).unwrap();
+        if !folder_exists {
+            conn.execute("INSERT INTO folder_info (folder, size) VALUES (?1, ?2)", params![folder.0, folder.1])?;
+        }
+    }
+ */
+    // compare folder sizes in db with folder sizes in folder_sizes
+    // if folder size in db is different from folder size in folder_sizes, print the difference
+    // if folder size in db is the same as folder size in folder_sizes, print "no change"
+
+    bar.set_length(filenames.len() as u64);
+    let conn = Arc::new(Mutex::new(Connection::open("reve.db")?));
 
     filenames.par_iter().for_each(|filename| {
         let real_filename = Path::new(filename).file_name().unwrap().to_str().unwrap();
@@ -133,9 +292,9 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
                 let _height = values["streams"][0]["height"].as_i64().unwrap_or(0);
                 let filepath = values["format"]["filename"].as_str().unwrap();
                 let filename = Path::new(filepath).file_name().unwrap().to_str().unwrap();
-                let _size = values["format"]["size"].as_str().unwrap_or("NaN");
-                let bitrate = values["format"]["bit_rate"].as_str().unwrap_or("NaN");
-                let duration = values["format"]["duration"].as_str().unwrap_or("NaN");
+                let size = values["format"]["size"].as_str().unwrap_or("0");
+                let bitrate = values["format"]["bit_rate"].as_str().unwrap_or("0");
+                let duration = values["format"]["duration"].as_str().unwrap_or("0.0");
                 let format = values["format"]["format_name"].as_str().unwrap_or("NaN");
                 let width = values["streams"][0]["width"].as_i64().unwrap_or(0);
                 let height = values["streams"][0]["height"].as_i64().unwrap_or(0);
@@ -144,24 +303,60 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
                 let checksum = values["streams"][0]["extradata_hash"].as_str().unwrap_or("NaN");
                 let dar = values["streams"][0]["display_aspect_ratio"].as_str().unwrap_or("NaN");
                 let sar = values["streams"][0]["sample_aspect_ratio"].as_str().unwrap_or("NaN");
-                let file_metadata = fs::metadata(filepath);
-                let metadata_size = file_metadata.unwrap().len();
-            
+/*                 let mut frame_count = values["streams"][0]["nb_frames"].as_str().unwrap_or("NaN");
+                let frame_count_tags = values["streams"][0]["tags"]["NUMBER_OF_FRAMES-eng"].as_str().unwrap_or("NaN");
+                // if frame_count is equal to 'NaN' and frame_count_tags is not 'NaN', set frame_count to frame_count_tags
+                // if both are 'NaN', set frame_count to frame_count_calc as rounded to the nearest integer, by dividing duration by fps
+                if frame_count == "NaN" && frame_count_tags != "NaN" {
+                    frame_count = frame_count_tags;
+                }
+                if frame_count == "NaN" {
+                    let fps = values["streams"][0]["r_frame_rate"].as_str().unwrap_or("NaN");
+                    let fps = fps.split("/").collect::<Vec<&str>>();
+                    if fps.len() == 2 {
+                        let numerator = fps[0].parse::<f64>().unwrap_or(0.0);
+                        let denominator = fps[1].parse::<f64>().unwrap_or(1.0);
+                        let fps = numerator / denominator;
+                        let duration = duration.parse::<f64>().unwrap_or(0.0);
+                        frame_count = (duration * fps).round().to_string().as_str();
+                    }
+                } */
+
+                // for each file in this folder and it's subfodlers, sum the size of the files
+                let mut folder_size = 0;
+                for entry in WalkDir::new(Path::new(filepath).parent().unwrap()) {
+                    let entry = entry.unwrap();
+                    let metadata = fs::metadata(entry.path());
+                    folder_size += metadata.unwrap().len() as i64;
+                }
+                //println!("{}", folder_size);
+
                 if height <= res.parse::<i64>().unwrap() {
                     conn.execute(
-                        "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, metadata_size, bitrate, codec, res, "pending", checksum]
+/*                         "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, frame_count, folder_size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, size, frame_count, folder_size, bitrate, codec, res, "pending", checksum] */
+                        "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, folder_size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, size, folder_size, bitrate, codec, res, "pending", checksum]
                     ).unwrap();
                     count.fetch_add(1, Ordering::SeqCst);
                     db_count_added.fetch_add(1, Ordering::SeqCst);
                 } else {
-                    db_count_skipped.fetch_add(1, Ordering::SeqCst);
+                    //db_count_skipped.fetch_add(1, Ordering::SeqCst);
+                    conn.execute(
+/*                         "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, frame_count, folder_size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, size, frame_count, folder_size, bitrate, codec, res, "skipped", checksum] */
+                        "INSERT INTO video_info (filename, filepath, width, height, duration, pixel_format, display_aspect_ratio, sample_aspect_ratio, format, size, folder_size, bitrate, codec, resolution, status, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                        params![filename, filepath, width, height, duration, pix_fmt, dar, sar, format, size, folder_size, bitrate, codec, res, "skipped", checksum]
+                    ).unwrap();
+                    count.fetch_add(1, Ordering::SeqCst);
+                    db_count_added.fetch_add(1, Ordering::SeqCst);
                 }
             }
         } else {
             db_count.fetch_add(1, Ordering::SeqCst);
         }
 
+        // TODO check if all files in db then return only the ones that need to be processed
         let height = get_ffprobe_output(filename).unwrap();
         let height_value = height["streams"][0]["height"].as_i64().unwrap_or(0);
         if height_value <= res.parse::<i64>().unwrap() {
@@ -171,13 +366,36 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
         bar.inc(1);
     });
 
+/*     // return all the files that are in the db with status 'pending'
+    let conn = conn.clone();
+    let conn = conn.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT filepath FROM video_info WHERE status='pending'").unwrap();
+    let mut rows = stmt.query(params![]).unwrap();
+    while let Some(row) = rows.next().unwrap() {
+        let filepath: String = row.get(0).unwrap();
+        files_to_process.lock().unwrap().push(filepath);
+    }
+    println!("Found {} files to process in database", files_to_process.lock().unwrap().len()); */
+
+/*     // get the total frames of each file in files_to_process from the database
+    let mut total_frames = 0;
+    for file in files_to_process.lock().unwrap().iter() {
+        let mut stmt = conn.prepare("SELECT total_frames FROM video_info WHERE filepath=?1").unwrap();
+        let mut rows = stmt.query(params![file]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            let total_frames_value: i64 = row.get(0).unwrap();
+            total_frames += total_frames_value;
+        }
+    }
+    println!("Total frames to process: {}", total_frames); */
+
     // return all the counters
     Ok((vec![count, db_count, db_count_added, db_count_skipped], files_to_process))
 }
 
-pub fn update_db_status(conn: &Connection, filename: &str, status: &str) -> Result<(), rusqlite::Error> {
-    let mut stmt = conn.prepare("UPDATE video_info SET status=?1 WHERE filename=?2")?;
-    stmt.execute(params![status, filename])?;
+pub fn update_db_status(conn: &Connection, filepath: &str, status: &str) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare("UPDATE video_info SET status=?1 WHERE filepath=?2")?;
+    stmt.execute(params![status, filepath])?;
     Ok(())
 }
 
@@ -501,6 +719,30 @@ pub fn get_frame_count_tag(input_path: &String) -> u32 {
     match r {
         Err(_e) => 0,
         _ => r.unwrap(),
+    }
+}
+
+pub fn get_frame_count_duration(input_path: &String) -> u32 {
+    let output = Command::new("ffprobe")
+        .arg("-i")
+        .arg(input_path)
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .output()
+        .expect("failed to execute process");
+    let r = String::from_utf8(output.stdout)
+        .unwrap()
+        .trim()
+        .parse::<f32>();
+    match r {
+        Err(_e) => 0,
+        _ => (r.unwrap() * 25.0) as u32,
     }
 }
 
