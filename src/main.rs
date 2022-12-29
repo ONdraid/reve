@@ -16,7 +16,7 @@ use std::{thread, time::Duration};
 use std::time::Instant;
 use std::fs::metadata;
 use rusqlite::Result;
-use rusqlite::{Connection};
+use rusqlite::{Connection, params};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -249,97 +249,6 @@ fn main() {
         std::process::exit(1);
     }
 
-    if Path::new(&args_path).exists() {
-        //Check if previous file is used, if yes, continue upscale without asking
-        let old_args_json = fs::read_to_string(&args_path).expect("Unable to read file");
-        let old_args: Args = serde_json::from_str(&old_args_json).unwrap();
-        let previous_file = Path::new(&old_args.inputpath);
-        let previous_file_name = previous_file.file_name().unwrap().to_str().unwrap();
-        let md = fs::metadata(&args.inputpath).unwrap();
-
-        // Check if same file is used as previous upscale and if yes, resume
-        if args.inputpath == previous_file.to_string_lossy() || args.inputpath.contains(previous_file_name)
-        {
-            if md.is_file() {
-                println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
-                // Resume upscale
-                let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
-                args = serde_json::from_str(&args_json).unwrap();
-                env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
-                clear_dirs(&[tmp_frames_path, out_frames_path]);
-                clear().expect("failed to clear screen");
-                println!("{}", "resuming upscale".to_string().green());
-            } else if md.is_dir() {
-                println!("Same folder! '{}' Resuming next file...", previous_file.file_name().unwrap().to_str().unwrap());
-                // Resume upscale
-                let args_json = fs::read_to_string(&args_path).expect("Unable to read file");
-                args = serde_json::from_str(&args_json).unwrap();
-                env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
-                clear_dirs(&[tmp_frames_path, out_frames_path]);
-                clear().expect("failed to clear screen");
-                println!("{}", "resuming upscale".to_string().green());
-            }
-        } else {
-            // Remove and start new
-            args = Args::parse();
-
-            env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
-
-            clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
-            match fs::remove_file(txt_list_path) {
-                Ok(()) => "ok",
-                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
-                Err(_e) => "other",
-            };
-            match fs::remove_file(&temp_video_path) {
-                Ok(()) => "ok",
-                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
-                Err(_e) => "other",
-            };
-
-            let serialized_args = serde_json::to_string(&args).unwrap();
-
-            let md = metadata(&args.inputpath).unwrap();
-            if md.is_file() {
-                fs::write(&args_path, serialized_args).expect("Unable to write file");
-            }
-            clear().expect("failed to clear screen");
-            println!(
-                "{}",
-                "deleted all temporary files, parsing console input"
-                    .to_string()
-                    .green()
-            );
-        }
-    } else {
-        // Remove and start new
-        args = Args::parse();
-
-        env::set_current_dir(current_exe_path.parent().unwrap()).unwrap();
-
-        clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
-        match fs::remove_file(txt_list_path) {
-            Ok(()) => "ok",
-            Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
-            Err(_e) => "other",
-        };
-        match fs::remove_file(&temp_video_path) {
-            Ok(()) => "ok",
-            Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
-            Err(_e) => "other",
-        };
-
-        let serialized_args = serde_json::to_string(&args).unwrap();
-        fs::write(&args_path, serialized_args).expect("Unable to write file");
-        clear().expect("failed to clear screen");
-        println!(
-            "{}",
-            "deleted all temporary files, parsing console input"
-                .to_string()
-                .green()
-        );
-    }
-
     let md = metadata(Path::new(&args.inputpath)).unwrap();
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
     if md.is_dir() {
@@ -360,9 +269,10 @@ fn main() {
         let vector_files = walk_files(&args.inputpath);
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
 
-        let result = add_to_db(vector_files.clone(), args.resolution.clone(), files_bar.clone(), &args.inputpath.clone()).unwrap();
+        let result = add_to_db(vector_files.clone(), args.resolution.clone(), files_bar.clone()).unwrap();
         // get the counters from the add_to_db function
         let counters = result.0;
+
         let to_process = result.1;
         // get the vector of files to process
         let mut vector_files_to_process = to_process.lock().unwrap().clone();
@@ -373,13 +283,16 @@ fn main() {
         db_count_added = format!("{:?}", counters[2]).parse::<u64>().unwrap();
         db_count_skipped = format!("{:?}", counters[3]).parse::<u64>().unwrap();
 
-        if count == 0 && vector_files_to_process.len() != 0 {
-            count = vector_files_to_process.len() as i32;
-            current_file_count = db_count - vector_files_to_process.len() as u64;
-        }
-
         if vector_files_to_process.len() == 0 {
-            // get all the files from the database that contain input_path's folder parent in column filepath and status 'pending' ins status column and add them to the vector_files_to_process
+            // get all the files from the database that contain input_path's folder parent in column filepath and status 'processing' in status column and add them to the vector_files_to_process
+            let conn = Connection::open("reve.db").unwrap();
+            let input = args.inputpath.clone();
+            let mut stmt = conn.prepare("SELECT * FROM video_info WHERE status = 'processing' AND filepath LIKE ?").unwrap();
+            let mut rows = stmt.query(&[&format!("%{}%", input)]).unwrap();
+            while let Some(row) = rows.next().unwrap() {
+                vector_files_to_process.push(row.get(2).unwrap());
+            }
+            // get all the files from the database that contain input_path's folder parent in column filepath and status 'pending' in status column and add them to the vector_files_to_process
             let conn = Connection::open("reve.db").unwrap();
             let input = args.inputpath.clone();
             let mut stmt = conn.prepare("SELECT * FROM video_info WHERE status = 'pending' AND filepath LIKE ?").unwrap();
@@ -387,6 +300,11 @@ fn main() {
             while let Some(row) = rows.next().unwrap() {
                 vector_files_to_process.push(row.get(2).unwrap());
             }
+        }
+
+        if count == 0 && vector_files_to_process.len() != 0 {
+            count = vector_files_to_process.len() as i32;
+            current_file_count = db_count - vector_files_to_process.len() as u64;
         }
 
         let frame_count_bar = ProgressBar::new(vector_files_to_process.len() as u64);
@@ -490,6 +408,10 @@ fn main() {
             println!("total_frames_count: {}", total_frames_count);
             println!("vector_files_to_process_frames_count: {:?}", vector_files_to_process_frames_count);
             //exit(1);
+
+            // update status in sqlite database 'reve.db' to processing for this file where filepaths match the current file
+            let conn = Connection::open("reve.db").unwrap();
+            conn.execute("UPDATE video_info SET status = 'processing' WHERE filepath = ?", &[&args.inputpath]).unwrap();
 
             work(&args, dar.clone(), current_file_count as i32, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), vector_files_to_process_frames_count.clone());
 
@@ -604,10 +526,13 @@ fn main() {
 fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, vector_files_to_process_frames_count: Vec<u64>) {
 
     let work_now = Instant::now();
-
-    let mut frame_position;
-    let filename = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
-
+ 
+    #[cfg(target_os = "windows")]
+    let args_path = Path::new("temp\\args.temp");
+    #[cfg(target_os = "windows")]
+    let tmp_frames_path = "temp\\tmp_frames\\";
+    #[cfg(target_os = "windows")]
+    let out_frames_path = "temp\\out_frames\\";
     #[cfg(target_os = "windows")]
     let video_parts_path = "temp\\video_parts\\";
     #[cfg(target_os = "windows")]
@@ -616,11 +541,102 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
     let txt_list_path = "temp\\parts.txt";
 
     #[cfg(target_os = "linux")]
+    let args_path = Path::new("/dev/shm/args.temp");
+    #[cfg(target_os = "linux")]
+    let tmp_frames_path = "/dev/shm/tmp_frames/";
+    #[cfg(target_os = "linux")]
+    let out_frames_path = "/dev/shm/out_frames/";
+    #[cfg(target_os = "linux")]
     let video_parts_path = "/dev/shm/video_parts/";
     #[cfg(target_os = "linux")]
     let temp_video_path = format!("/dev/shm/temp.{}", &args.format);
     #[cfg(target_os = "linux")]
     let txt_list_path = "/dev/shm/parts.txt";
+
+    if Path::new(&args_path).exists() {
+        //Check if previous file is used, if yes, continue upscale without asking
+        let old_args_json = fs::read_to_string(&args_path).expect("Unable to read file");
+        let old_args: Args = serde_json::from_str(&old_args_json).unwrap();
+        let previous_file = Path::new(&old_args.inputpath);
+        let md = fs::metadata(&args.inputpath).unwrap();
+
+        // Check if same file is used as previous upscale and if yes, resume
+        if args.inputpath == previous_file.to_string_lossy()
+        {
+            if md.is_file() {
+                println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
+                // Resume upscale
+                clear_dirs(&[&tmp_frames_path, &out_frames_path]);
+                clear().expect("failed to clear screen");
+                println!("{}", "resuming upscale".to_string().green());
+            }
+        } else {
+            // Remove and start new
+            clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
+            match fs::remove_file(&txt_list_path) {
+                Ok(()) => "ok",
+                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+                Err(_e) => "other",
+            };
+            match fs::remove_file(&temp_video_path) {
+                Ok(()) => "ok",
+                Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+                Err(_e) => "other",
+            };
+
+            let serialized_args = serde_json::to_string(&args).unwrap();
+
+            let md = metadata(&args.inputpath).unwrap();
+            if md.is_file() {
+                fs::write(&args_path, serialized_args).expect("Unable to write file");
+            }
+            clear().expect("failed to clear screen");
+            println!(
+                "{}",
+                "deleted all temporary files, parsing console input"
+                    .to_string()
+                    .green()
+            );
+        }
+    } else {
+        // Remove and start new
+        clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
+        match fs::remove_file(&txt_list_path) {
+            Ok(()) => "ok",
+            Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+            Err(_e) => "other",
+        };
+        match fs::remove_file(&temp_video_path) {
+            Ok(()) => "ok",
+            Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
+            Err(_e) => "other",
+        };
+
+        let serialized_args = serde_json::to_string(&args).unwrap();
+
+        let md = metadata(&args.inputpath).unwrap();
+        if md.is_file() {
+            fs::write(&args_path, serialized_args).expect("Unable to write file");
+        }
+        clear().expect("failed to clear screen");
+        println!(
+            "{}",
+            "deleted all temporary files, parsing console input"
+                .to_string()
+                .green()
+        );
+    }
+
+    // check if files are marked as processing in database that is not the current file and set status as 'pending'
+    let conn = Connection::open("reve.db").unwrap();
+    conn.execute(
+        "UPDATE video_info SET status = 'pending' WHERE status = 'processing' AND filepath != ?1",
+        params![args.inputpath],
+    )
+    .unwrap();
+
+    let mut frame_position;
+    let filename = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
 
     let mut total_frame_count = get_frame_count(&args.inputpath);
 
