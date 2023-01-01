@@ -88,13 +88,18 @@ impl Video {
 
     pub fn export_segment(&self, index: usize) -> Result<BufReader<ChildStderr>, Error> {
         let index_dir = format!("temp\\tmp_frames\\{}", index);
-        fs::create_dir(&index_dir).expect("could not create directory");
+        fs::create_dir(&index_dir).unwrap();
 
         let output_path = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
         let start_time = if index == 0 {
             String::from("0")
         } else {
             ((index as u32 * self.segment_size - 1) as f32 / self.frame_rate).to_string()
+        };
+        let segments_index = if self.segments.len() == 1 {
+            0
+        } else {
+            1
         };
         let stderr = Command::new("ffmpeg")
             .args([
@@ -113,7 +118,7 @@ impl Video {
                 "-vsync",
                 "0",
                 "-vframes",
-                &self.segments[index].size.to_string(),
+                &self.segments[segments_index].size.to_string(),
                 &output_path,
             ])
             .stdout(Stdio::piped())
@@ -283,7 +288,7 @@ pub fn get_last_segment_size(frame_count: u32, segment_size: u32) -> u32 {
     if last_segment_size == 0 {
         segment_size
     } else {
-        last_segment_size
+        last_segment_size - 1
     }
 }
 
