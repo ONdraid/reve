@@ -113,7 +113,7 @@ impl Video {
                 "-vsync",
                 "0",
                 "-vframes",
-                &self.segments[index].size.to_string(),
+                &self.segments[1].size.to_string(),
                 &output_path,
             ])
             .stdout(Stdio::piped())
