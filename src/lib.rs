@@ -19,6 +19,7 @@ pub struct Video {
     pub segments: Vec<Segment>,
     pub frame_rate: f32,
     pub frame_count: u32,
+    pub segment_size: u32,
     pub segment_count: u32,
     pub upscale_ratio: u8,
 }
@@ -79,6 +80,7 @@ impl Video {
             segments,
             frame_rate,
             frame_count,
+            segment_size,
             segment_count,
             upscale_ratio,
         }
@@ -92,7 +94,7 @@ impl Video {
         let start_time = if index == 0 {
             String::from("0")
         } else {
-            ((index as u32 * self.segments[index].size - 1) as f32 / self.frame_rate).to_string()
+            ((index as u32 * self.segment_size - 1) as f32 / self.frame_rate).to_string()
         };
         let stderr = Command::new("ffmpeg")
             .args([
