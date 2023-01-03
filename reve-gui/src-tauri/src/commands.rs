@@ -49,30 +49,29 @@ pub async fn upscale_single_video(
 
         let upscale_string = upscale_type_model.upscale_type_as_str();
 
-        let (mut rx, mut _child) =
-            match Command::new("realesrgan-ncnn-vulkan.exe")
-                .args([
-                    "-i",
-                    &path,
-                    "-o",
-                    &save_path,
-                    "-m",
-                    "models",
-                    "-n",
-                    (upscale_string.to_owned() + "-x" + &upscale_factor.to_owned()).as_str(),
-                    "-s",
-                    &upscale_factor.to_owned(),
-                ])
-                .spawn()
-            {
-                Ok((rx, child)) => (rx, child),
-                Err(err) => {
-                    return Err(format!(
-                        "Failed to spawn process \"realesrgan-ncnn-vulkan.exe\": {}",
-                        err
-                    ));
-                }
-            };
+        let (mut rx, mut _child) = match Command::new("realesrgan-ncnn-vulkan.exe")
+            .args([
+                "-i",
+                &path,
+                "-o",
+                &save_path,
+                "-m",
+                "models",
+                "-n",
+                (upscale_string.to_owned() + "-x" + &upscale_factor.to_owned()).as_str(),
+                "-s",
+                &upscale_factor.to_owned(),
+            ])
+            .spawn()
+        {
+            Ok((rx, child)) => (rx, child),
+            Err(err) => {
+                return Err(format!(
+                    "Failed to spawn process \"realesrgan-ncnn-vulkan.exe\": {}",
+                    err
+                ));
+            }
+        };
 
         let logger = utils::Logger::new();
         let mut command_buffer = Vec::new();

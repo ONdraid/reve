@@ -26,8 +26,11 @@ impl ConfigData {
 
     /// Validates the `ConfigData` struct.
     fn validate_config(&self) -> Result<(), Box<dyn Error>> {
-        if [String::from("realesr-animevideov3"), String::from("realesr-realvideo")]
-            .contains(&self.get_default_upscale_type())
+        if [
+            String::from("realesr-animevideov3"),
+            String::from("realesr-realvideo"),
+        ]
+        .contains(&self.get_default_upscale_type())
         {
             Ok(())
         } else {

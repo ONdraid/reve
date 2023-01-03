@@ -1,22 +1,22 @@
 mod utils;
 use crate::utils::*;
 
-use clap::{Parser};
+use clap::Parser;
 use clearscreen::clear;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use serde::{Deserialize, Serialize};
-use std::{env, vec};
-use std::fs::{self};
-use std::io::{ErrorKind};
-use std::path::{Path};
-use std::process::{Command, exit};
-use std::str::FromStr;
-use std::{thread, time::Duration};
-use std::time::Instant;
-use std::fs::metadata;
 use rusqlite::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use std::fs::metadata;
+use std::fs::{self};
+use std::io::ErrorKind;
+use std::path::Path;
+use std::process::{exit, Command};
+use std::str::FromStr;
+use std::time::Instant;
+use std::{env, vec};
+use std::{thread, time::Duration};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[clap(name = "Real-ESRGAN Video Enhance",
@@ -111,8 +111,7 @@ fn output_validation(s: &str) -> Result<String, String> {
     if p.exists() {
         println!("{} already exists!", &s);
         exit(1);
-    }
-    else {
+    } else {
         match p.extension().unwrap().to_str().unwrap() {
             "mp4" | "mkv" | "avi" => Ok(s.to_string()),
             _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
@@ -125,8 +124,7 @@ fn output_validation_dir(s: &str) -> Result<String, String> {
 
     if p.exists() {
         return Ok("already exists".to_string());
-    }
-    else {
+    } else {
         match p.extension().unwrap().to_str().unwrap() {
             "mp4" | "mkv" | "avi" => Ok(s.to_string()),
             _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
@@ -163,10 +161,7 @@ fn preset_validation(s: &str) -> Result<String, String> {
 fn codec_validation(s: &str) -> Result<String, String> {
     match s {
         "libx265" | "libsvt_hevc" | "libsvtav1" => Ok(s.to_string()),
-        _ => Err(String::from_str(
-            "valid: libx265/libsvt_hevc/libsvtav1",
-        )
-        .unwrap()),
+        _ => Err(String::from_str("valid: libx265/libsvt_hevc/libsvtav1").unwrap()),
     }
 }
 
@@ -181,7 +176,7 @@ fn main() {
     // Try to create directories needed
     match create_dirs() {
         Err(e) => println!("{:?}", e),
-        _ => ()
+        _ => (),
     }
 
     check_bins();
@@ -191,8 +186,8 @@ fn main() {
         Err(e) => {
             println!("{:?}", e);
             exit(1);
-        },
-        _ => ()
+        }
+        _ => (),
     };
 
     let mut output_path: String = "".to_string();
@@ -212,12 +207,12 @@ fn main() {
     let txt_list_path = "temp\\parts.txt";
     #[cfg(target_os = "windows")]
     let args_path = current_exe_path
-    .parent()
-    .unwrap()
-    .join("temp\\args.temp")
-    .into_os_string()
-    .into_string()
-    .unwrap();
+        .parent()
+        .unwrap()
+        .join("temp\\args.temp")
+        .into_os_string()
+        .into_string()
+        .unwrap();
 
     #[cfg(target_os = "linux")]
     let tmp_frames_path = "/dev/shm/tmp_frames/";
@@ -231,20 +226,26 @@ fn main() {
     let txt_list_path = "/dev/shm/parts.txt";
     #[cfg(target_os = "linux")]
     let args_path = current_exe_path
-    .parent()
-    .unwrap()
-    .join("/dev/shm/args.temp")
-    .into_os_string()
-    .into_string()
-    .unwrap();
+        .parent()
+        .unwrap()
+        .join("/dev/shm/args.temp")
+        .into_os_string()
+        .into_string()
+        .unwrap();
 
     let ffmpeg_support = check_ffmpeg();
 
     let choosen_codec = &args.codec;
     if ffmpeg_support.contains(choosen_codec) {
-        println!("Codec {} supported by current ffmpeg binary!", choosen_codec);
+        println!(
+            "Codec {} supported by current ffmpeg binary!",
+            choosen_codec
+        );
     } else {
-        println!("Codec {} not supported by current ffmpeg binary! Supported:{}", choosen_codec, ffmpeg_support);
+        println!(
+            "Codec {} not supported by current ffmpeg binary! Supported:{}",
+            choosen_codec, ffmpeg_support
+        );
         // TODO implement fallback to supported codec
         std::process::exit(1);
     }
@@ -269,7 +270,12 @@ fn main() {
         let vector_files = walk_files(&args.inputpath);
         let mut vector_files_to_process_frames_count: Vec<u64> = Vec::new();
 
-        let result = add_to_db(vector_files.clone(), args.resolution.clone(), files_bar.clone()).unwrap();
+        let result = add_to_db(
+            vector_files.clone(),
+            args.resolution.clone(),
+            files_bar.clone(),
+        )
+        .unwrap();
         // get the counters from the add_to_db function
         let counters = result.0;
 
@@ -287,7 +293,9 @@ fn main() {
             // get all the files from the database that contain input_path's folder parent in column filepath and status 'processing' in status column and add them to the vector_files_to_process
             let conn = Connection::open("reve.db").unwrap();
             let input = args.inputpath.clone();
-            let mut stmt = conn.prepare("SELECT * FROM video_info WHERE status = 'processing' AND filepath LIKE ?").unwrap();
+            let mut stmt = conn
+                .prepare("SELECT * FROM video_info WHERE status = 'processing' AND filepath LIKE ?")
+                .unwrap();
             let mut rows = stmt.query(&[&format!("%{}%", input)]).unwrap();
             while let Some(row) = rows.next().unwrap() {
                 vector_files_to_process.push(row.get(2).unwrap());
@@ -295,7 +303,9 @@ fn main() {
             // get all the files from the database that contain input_path's folder parent in column filepath and status 'pending' in status column and add them to the vector_files_to_process
             let conn = Connection::open("reve.db").unwrap();
             let input = args.inputpath.clone();
-            let mut stmt = conn.prepare("SELECT * FROM video_info WHERE status = 'pending' AND filepath LIKE ?").unwrap();
+            let mut stmt = conn
+                .prepare("SELECT * FROM video_info WHERE status = 'pending' AND filepath LIKE ?")
+                .unwrap();
             let mut rows = stmt.query(&[&format!("%{}%", input)]).unwrap();
             while let Some(row) = rows.next().unwrap() {
                 vector_files_to_process.push(row.get(2).unwrap());
@@ -318,7 +328,10 @@ fn main() {
 
         files_bar.finish_and_clear();
         println!("Added {} files to the database ({} already present, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped, &args.resolution);
-        println!("Upscaling {} files (Due to max height resolution: {}p)", count, &args.resolution);
+        println!(
+            "Upscaling {} files (Due to max height resolution: {}p)",
+            count, &args.resolution
+        );
 
         let total_frames = vector_files_to_process.clone();
         let mut current_frame_count: u64 = 0;
@@ -368,62 +381,90 @@ fn main() {
                 let directory_path = format!("{}{}", directory.trim_end_matches("."), "\\");
                 #[cfg(target_os = "linux")]
                 let directory_path = format!("{}{}", directory.trim_end_matches("."), "/");
-                output_path = format!("{}{}.{}.{}", directory_path, filename_no_ext, filename_codec, filename_ext);
+                output_path = format!(
+                    "{}{}.{}.{}",
+                    directory_path, filename_no_ext, filename_codec, filename_ext
+                );
                 done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
                 match output_validation_dir(&output_path) {
                     Err(e) => {
                         println!("{:?}", e);
                         exit(1);
-                    },
-                    Ok(s) => if s.contains("already exists") {
-                        println!("{} already exists, skipping", done_output);
-                        continue;
+                    }
+                    Ok(s) => {
+                        if s.contains("already exists") {
+                            println!("{} already exists, skipping", done_output);
+                            continue;
+                        }
                     }
                 }
             }
             if args.outputpath.is_some() {
-                let str_outputpath = &args.outputpath.as_deref().unwrap_or("default string").to_owned();
+                let str_outputpath = &args
+                    .outputpath
+                    .as_deref()
+                    .unwrap_or("default string")
+                    .to_owned();
                 let path = Path::new(&str_outputpath);
                 let filename = path.file_name().unwrap().to_string_lossy();
-    
+
                 output_path = absolute_path(filename.to_string());
                 done_output = filename.to_string();
                 match output_validation_dir(&output_path) {
                     Err(e) => {
                         println!("{:?}", e);
                         exit(1);
-                    },
-                    Ok(s) => if s.contains("already exists") {
-                        println!("{} already exists, skipping", done_output);
-                        continue;
+                    }
+                    Ok(s) => {
+                        if s.contains("already exists") {
+                            println!("{} already exists, skipping", done_output);
+                            continue;
+                        }
                     }
                 }
             }
 
             args.inputpath = absolute_path(file.clone());
 
-            println!("Processing file {} of {} ({}):", current_file_count, total_files, done_output);
+            println!(
+                "Processing file {} of {} ({}):",
+                current_file_count, total_files, done_output
+            );
             println!("Input path: {}", args.inputpath);
             println!("Output path: {}", output_path);
             println!("total_frames_count: {}", total_frames_count);
-            println!("vector_files_to_process_frames_count: {:?}", vector_files_to_process_frames_count);
+            println!(
+                "vector_files_to_process_frames_count: {:?}",
+                vector_files_to_process_frames_count
+            );
             //exit(1);
 
             // update status in sqlite database 'reve.db' to processing for this file where filepaths match the current file
             let conn = Connection::open("reve.db").unwrap();
-            conn.execute("UPDATE video_info SET status = 'processing' WHERE filepath = ?", &[&args.inputpath]).unwrap();
+            conn.execute(
+                "UPDATE video_info SET status = 'processing' WHERE filepath = ?",
+                &[&args.inputpath],
+            )
+            .unwrap();
 
-            work(&args, dar.clone(), current_file_count as i32, total_files, done_output.clone(), output_path.clone(), total_frames_count.clone(), vector_files_to_process_frames_count.clone());
+            work(
+                &args,
+                dar.clone(),
+                current_file_count as i32,
+                total_files,
+                done_output.clone(),
+                output_path.clone(),
+                total_frames_count.clone(),
+                vector_files_to_process_frames_count.clone(),
+            );
 
             // Validation
             {
-               
                 let p = Path::new(&temp_video_path);
                 if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
                     clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
                     fs::remove_file(txt_list_path).expect("Unable to delete file");
-                    if std::path::Path::new(&args_path).exists()
-                    {
+                    if std::path::Path::new(&args_path).exists() {
                         fs::remove_file(&args_path).expect("Unable to delete file");
                     }
                     fs::remove_file(&temp_video_path).expect("Unable to delete file");
@@ -436,7 +477,10 @@ fn main() {
         let seconds = elapsed.as_secs() % 60;
         let minutes = (elapsed.as_secs() / 60) % 60;
         let hours = (elapsed.as_secs() / 60) / 60;
-        println!("done {} files in {}h:{}m:{}s", count, hours, minutes, seconds);
+        println!(
+            "done {} files in {}h:{}m:{}s",
+            count, hours, minutes, seconds
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -451,17 +495,28 @@ fn main() {
         if total_frames_count == 0 {
             total_frames_count = u64::from(get_frame_count_tag(&args.inputpath));
         }
-        let directory = Path::new(&args.inputpath).parent().unwrap().to_str().unwrap();
+        let directory = Path::new(&args.inputpath)
+            .parent()
+            .unwrap()
+            .to_str()
+            .unwrap();
         if args.outputpath.is_none() {
             let path = Path::new(&args.inputpath);
             let filename_ext = &args.format;
             let filename_no_ext = path.file_stem().unwrap().to_string_lossy();
             let filename_codec = &args.codec;
-            output_path = format!("{}{}{}.{}.{}", directory, folder_args, filename_no_ext, filename_codec, filename_ext);
+            output_path = format!(
+                "{}{}{}.{}.{}",
+                directory, folder_args, filename_no_ext, filename_codec, filename_ext
+            );
             done_output = format!("{}.{}.{}", filename_no_ext, filename_codec, filename_ext);
         }
         if args.outputpath.is_some() {
-            let str_outputpath = &args.outputpath.as_deref().unwrap_or("default string").to_owned();
+            let str_outputpath = &args
+                .outputpath
+                .as_deref()
+                .unwrap_or("default string")
+                .to_owned();
             let path = Path::new(&str_outputpath);
             let filename = path.file_name().unwrap().to_string_lossy();
             output_path = absolute_path(filename.to_string());
@@ -469,36 +524,46 @@ fn main() {
         }
         match output_validation(&output_path) {
             Err(e) => println!("{:?}", e),
-            _ => ()
-        }        clear().expect("failed to clear screen");
+            _ => (),
+        }
+        clear().expect("failed to clear screen");
         total_files = 1;
 
         let temp_vector = vec![total_frames_count];
 
         let ffprobe_output = Command::new("ffprobe")
-        .args([
-            "-i",
-            args.inputpath.as_str(),
-            "-v",
-            "error",
-            "-select_streams",
-            "v",
-            "-show_entries",
-            "stream",
-            "-show_format",
-            "-show_data_hash",
-            "sha256",
-            "-show_streams",
-            "-of",
-            "json"
-        ])
-        .output()
-        .unwrap();
+            .args([
+                "-i",
+                args.inputpath.as_str(),
+                "-v",
+                "error",
+                "-select_streams",
+                "v",
+                "-show_entries",
+                "stream",
+                "-show_format",
+                "-show_data_hash",
+                "sha256",
+                "-show_streams",
+                "-of",
+                "json",
+            ])
+            .output()
+            .unwrap();
         //.\ffprobe.exe -i '\\192.168.1.99\Data\Animes\Agent AIKa\Saison 2\Agent AIKa - S02E03 - Trial 3 Deep Blue Girl.mkv' -v error -select_streams v -show_entries stream -show_format -show_data_hash sha256 -show_streams -of json
         let json_output = std::str::from_utf8(&ffprobe_output.stdout[..]).unwrap();
         let height = check_ffprobe_output_i8(json_output, &args.resolution);
         if height.unwrap() == 1 {
-            work(&args, dar, current_file_count as i32, total_files, done_output, output_path, total_frames_count, temp_vector);
+            work(
+                &args,
+                dar,
+                current_file_count as i32,
+                total_files,
+                done_output,
+                output_path,
+                total_frames_count,
+                temp_vector,
+            );
         } else {
             println!("{} is bigger than {}p", args.inputpath, args.resolution);
             println!("Set argument -r to a higher value");
@@ -511,10 +576,10 @@ fn main() {
             if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
                 clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
                 fs::remove_file(txt_list_path).expect("Unable to delete file");
-                if std::path::Path::new(&args_path).exists()
-                {
+                if std::path::Path::new(&args_path).exists() {
                     fs::remove_file(&args_path).expect("Unable to delete file");
-                }                fs::remove_file(temp_video_path).expect("Unable to delete file");
+                }
+                fs::remove_file(temp_video_path).expect("Unable to delete file");
             } else {
                 panic!("final file validation error: try running again")
             }
@@ -523,10 +588,18 @@ fn main() {
 }
 
 //fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_segment_count: u32, mut frame_position: u64) -> u64 {
-fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_frames_count: u64, vector_files_to_process_frames_count: Vec<u64>) {
-
+fn work(
+    args: &Args,
+    dar: String,
+    current_file_count: i32,
+    total_files: i32,
+    done_output: String,
+    output_path: String,
+    total_frames_count: u64,
+    vector_files_to_process_frames_count: Vec<u64>,
+) {
     let work_now = Instant::now();
- 
+
     #[cfg(target_os = "windows")]
     let args_path = Path::new("temp\\args.temp");
     #[cfg(target_os = "windows")]
@@ -561,10 +634,12 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
         let md = fs::metadata(&args.inputpath).unwrap();
 
         // Check if same file is used as previous upscale and if yes, resume
-        if args.inputpath == previous_file.to_string_lossy()
-        {
+        if args.inputpath == previous_file.to_string_lossy() {
             if md.is_file() {
-                println!("Same file! '{}' Resuming...", previous_file.file_name().unwrap().to_str().unwrap());
+                println!(
+                    "Same file! '{}' Resuming...",
+                    previous_file.file_name().unwrap().to_str().unwrap()
+                );
                 // Resume upscale
                 clear_dirs(&[&tmp_frames_path, &out_frames_path]);
                 clear().expect("failed to clear screen");
@@ -636,7 +711,11 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
     .unwrap();
 
     let mut frame_position;
-    let filename = Path::new(&args.inputpath).file_name().unwrap().to_str().unwrap();
+    let filename = Path::new(&args.inputpath)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
 
     let mut total_frame_count = get_frame_count(&args.inputpath);
 
@@ -665,7 +744,12 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
         "{}",
         format!(
             "{}/{}, {}, total segments: {}, last segment size: {}, codec: {} (ctrl+c to exit)",
-            current_file_count, total_files, filename.green(), parts_num, last_part_size, _codec
+            current_file_count,
+            total_files,
+            filename.green(),
+            parts_num,
+            last_part_size,
+            _codec
         )
         .yellow()
     );
@@ -708,9 +792,11 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
         if current_file_count == 1 {
             count = total_frames_count;
         } else {
-            count = total_frames_count - vector_files_to_process_frames_count[(current_file_count - 2) as usize];
+            count = total_frames_count
+                - vector_files_to_process_frames_count[(current_file_count - 2) as usize];
         }
-        frame_position = (total_frames_count - count as u64) + (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
+        frame_position = (total_frames_count - count as u64)
+            + (parts_num as usize - unprocessed_indexes.len()) as u64 * args.segmentsize as u64;
 
         let mut export_handle = thread::spawn(move || {});
         let mut merge_handle = thread::spawn(move || {});
@@ -732,7 +818,8 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
         let mut last_pb = pb.clone();
 
         //let progress_bar = m.insert_after(&last_pb, ProgressBar::new(total_files as u64));
-        let progress_bar_frames = m.insert_after(&last_pb, ProgressBar::new(total_frames_count as u64));
+        let progress_bar_frames =
+            m.insert_after(&last_pb, ProgressBar::new(total_frames_count as u64));
         progress_bar_frames.set_style(
             ProgressStyle::default_bar()
                 .template(total_frames_style)
@@ -854,9 +941,16 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
             );
             last_pb = progress_bar.clone();
 
-            frame_position = upscale_frames(&inpt_dir, &outpt_dir, &args.scale.to_string(), progress_bar, progress_bar_frames.clone(), frame_position)
-                .expect("could not upscale frames");
-            
+            frame_position = upscale_frames(
+                &inpt_dir,
+                &outpt_dir,
+                &args.scale.to_string(),
+                progress_bar,
+                progress_bar_frames.clone(),
+                frame_position,
+            )
+            .expect("could not upscale frames");
+
             merge_handle.join().unwrap();
 
             let _codec = args.codec.clone();
@@ -884,35 +978,18 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
             last_pb = progress_bar.clone();
 
             merge_handle = thread::spawn(move || {
-
                 // 2022-03-28 07:12 c2d1597
                 // https://github.com/AnimMouse/ffmpeg-autobuild/releases/download/m-2022-03-28-07-12/ffmpeg-c2d1597-651202b-win64-nonfree.7z
                 fs::remove_dir_all(&inpt_dir).unwrap();
                 if &_codec == "libsvt_hevc" {
-                    merge_frames_svt_hevc(
-                        &_inpt,
-                        &_outpt,
-                        &_codec,
-                        &_frmrt,
-                        &_crf,
-                        progress_bar,
-                    )
-                    .unwrap();
+                    merge_frames_svt_hevc(&_inpt, &_outpt, &_codec, &_frmrt, &_crf, progress_bar)
+                        .unwrap();
                     fs::remove_dir_all(&outpt_dir).unwrap();
-                }
-                else if &_codec == "libsvtav1" {
-                    merge_frames_svt_av1(
-                        &_inpt,
-                        &_outpt,
-                        &_codec,
-                        &_frmrt,
-                        &_crf,
-                        progress_bar,
-                    )
-                    .unwrap();
+                } else if &_codec == "libsvtav1" {
+                    merge_frames_svt_av1(&_inpt, &_outpt, &_codec, &_frmrt, &_crf, progress_bar)
+                        .unwrap();
                     fs::remove_dir_all(&outpt_dir).unwrap();
-                }
-                else if &_codec == "libx265" {
+                } else if &_codec == "libx265" {
                     merge_frames(
                         &_inpt,
                         &_outpt,
@@ -969,9 +1046,12 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
             } else {
                 if dar == "0" {
                     merge_video_parts(&txt_list_path.to_string(), &temp_video_path.to_string());
-                }
-                else {
-                    merge_video_parts_dar(&txt_list_path.to_string(), &temp_video_path.to_string(), &dar);
+                } else {
+                    merge_video_parts_dar(
+                        &txt_list_path.to_string(),
+                        &temp_video_path.to_string(),
+                        &dar,
+                    );
                 }
                 count += 1;
             }
@@ -979,7 +1059,7 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
     }
 
     //Check if aspect ratio is correct, if not, convert it
-/*     if dar == "0" {
+    /*     if dar == "0" {
         let temp_output_path = format!("temp/temp_aspect.{}", &args.format);
         convert_aspect_ratio_dar(&temp_video_path.to_string(), &temp_output_path, &dar);
         fs::remove_file(&temp_video_path).expect("failed to remove file");
@@ -1022,6 +1102,9 @@ fn work(args: &Args, dar: String, current_file_count: i32, total_files: i32, don
     let minutes = (elapsed.as_secs() / 60) % 60;
     let hours = (elapsed.as_secs() / 60) / 60;
 
-    let ancestors = Path::new(& args.inputpath).file_name().unwrap();
-    println!("done {:?} to {:?} in {}h:{}m:{}s", ancestors, done_output, hours, minutes, seconds);
+    let ancestors = Path::new(&args.inputpath).file_name().unwrap();
+    println!(
+        "done {:?} to {:?} in {}h:{}m:{}s",
+        ancestors, done_output, hours, minutes, seconds
+    );
 }

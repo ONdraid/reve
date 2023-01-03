@@ -1,7 +1,7 @@
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
-    path::{PathBuf, self},
+    path::{self, PathBuf},
 };
 
 use crate::configuration::{self, ConfigData, CONFIG_FOLDER, LOG_FILE};

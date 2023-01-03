@@ -1,20 +1,20 @@
 use colored::Colorize;
+use indicatif::ProgressBar;
 use path_clean::PathClean;
+use rayon::prelude::*;
+use rusqlite::{params, Connection, Result};
+use serde_json::from_str;
+use serde_json::Value;
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
-use std::path::{Path};
-use std::process::{Command, Stdio};
-use walkdir::WalkDir;
-use serde_json::{Value};
-use indicatif::ProgressBar;
+use std::path::Path;
 use std::process::Output;
-use serde_json::from_str;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::{vec};
-use rusqlite::{params, Connection, Result};
-use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
+use std::vec;
+use walkdir::WalkDir;
 
 pub fn check_bins() {
     #[cfg(target_os = "windows")]
@@ -29,15 +29,25 @@ pub fn check_bins() {
     let ffprobe = std::path::Path::new("ffprobe.exe").exists();
     #[cfg(target_os = "linux")]
     let ffprobe = std::path::Path::new("ffprobe").exists();
-    #[cfg(target_os = "windows")]    
+    #[cfg(target_os = "windows")]
     let model = std::path::Path::new("models\\realesr-animevideov3-x2.bin").exists();
     #[cfg(target_os = "linux")]
     let model = std::path::Path::new("models/realesr-animevideov3-x2.bin").exists();
 
     if realesrgan == true {
-        println!("{}", String::from("realesrgan-ncnn-vulkan exists!").green().bold());
+        println!(
+            "{}",
+            String::from("realesrgan-ncnn-vulkan exists!")
+                .green()
+                .bold()
+        );
     } else {
-        println!("{}", String::from("realesrgan-ncnn-vulkan does not exist!").red().bold());
+        println!(
+            "{}",
+            String::from("realesrgan-ncnn-vulkan does not exist!")
+                .red()
+                .bold()
+        );
         std::process::exit(1);
     }
     if ffmpeg == true {
@@ -63,21 +73,36 @@ pub fn check_bins() {
         }
     }
     if model == true {
-        println!("{}", String::from("models\\realesr-animevideov3-x2.bin exists!").green().bold());
+        println!(
+            "{}",
+            String::from("models\\realesr-animevideov3-x2.bin exists!")
+                .green()
+                .bold()
+        );
     } else {
-        println!("{}", String::from("models\\realesr-animevideov3-x2.bin does not exist!").red().bold());
+        println!(
+            "{}",
+            String::from("models\\realesr-animevideov3-x2.bin does not exist!")
+                .red()
+                .bold()
+        );
         std::process::exit(1);
     }
 }
 
-pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(Vec<AtomicI32>, Arc<Mutex<Vec<std::string::String>>>)> {
+pub fn add_to_db(
+    files: Vec<String>,
+    res: String,
+    bar: ProgressBar,
+) -> Result<(Vec<AtomicI32>, Arc<Mutex<Vec<std::string::String>>>)> {
     let count: AtomicI32 = AtomicI32::new(0);
     let mut db_count: AtomicI32 = AtomicI32::new(0);
     let db_count_added: AtomicI32 = AtomicI32::new(0);
     let db_count_skipped: AtomicI32 = AtomicI32::new(0);
     let files_to_process: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let conn = Connection::open("reve.db")?;
-    conn.execute("CREATE TABLE IF NOT EXISTS video_info (
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
                     filename TEXT NOT NULL,
                     filepath TEXT NOT NULL,
@@ -95,17 +120,55 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
                     resolution TEXT NOT NULL,
                     status TEXT NOT NULL,
                     hash TEXT NOT NULL
-                  )", params![])?;
+                  )",
+        params![],
+    )?;
 
     let mut filenames_skip = files.clone();
     let mut filenames = files;
 
     // get all items in db
     let mut stmt = conn.prepare("SELECT * FROM video_info")?;
-    let mut rows = stmt.query_map(params![], |row| {
-        Ok((row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?))
-    }).unwrap();
-    let mut db_items: Vec<(String, String, i32, i32, f64, String, String, String, String, i64, i64, i64, String, String, String, String)> = Vec::new();
+    let mut rows = stmt
+        .query_map(params![], |row| {
+            Ok((
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
+                row.get(10)?,
+                row.get(11)?,
+                row.get(12)?,
+                row.get(13)?,
+                row.get(14)?,
+                row.get(15)?,
+                row.get(16)?,
+            ))
+        })
+        .unwrap();
+    let mut db_items: Vec<(
+        String,
+        String,
+        i32,
+        i32,
+        f64,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        i64,
+        i64,
+        String,
+        String,
+        String,
+        String,
+    )> = Vec::new();
     while let Some(row) = rows.next() {
         let row = row.unwrap();
         db_items.push(row);
@@ -235,10 +298,17 @@ pub fn add_to_db(files: Vec<String>, res: String, bar: ProgressBar) -> Result<(V
     });
 
     // return all the counters
-    Ok((vec![count, db_count, db_count_added, db_count_skipped], files_to_process))
+    Ok((
+        vec![count, db_count, db_count_added, db_count_skipped],
+        files_to_process,
+    ))
 }
 
-pub fn update_db_status(conn: &Connection, filepath: &str, status: &str) -> Result<(), rusqlite::Error> {
+pub fn update_db_status(
+    conn: &Connection,
+    filepath: &str,
+    status: &str,
+) -> Result<(), rusqlite::Error> {
     let mut stmt = conn.prepare("UPDATE video_info SET status=?1 WHERE filepath=?2")?;
     stmt.execute(params![status, filepath])?;
     Ok(())
@@ -246,22 +316,22 @@ pub fn update_db_status(conn: &Connection, filepath: &str, status: &str) -> Resu
 
 pub fn get_ffprobe_output(filename: &str) -> Result<Value, String> {
     let output: Output = Command::new("ffprobe")
-    .args([
-        "-i",
-        filename,
-        "-v",
-        "error",
-        "-select_streams",
-        "v",
-        "-show_entries",
-        "stream",
-        "-show_format",
-        "-show_data_hash",
-        "sha256",
-        "-show_streams",
-        "-of",
-        "json"
-    ])
+        .args([
+            "-i",
+            filename,
+            "-v",
+            "error",
+            "-select_streams",
+            "v",
+            "-show_entries",
+            "stream",
+            "-show_format",
+            "-show_data_hash",
+            "sha256",
+            "-show_streams",
+            "-of",
+            "json",
+        ])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -276,7 +346,10 @@ pub fn get_ffprobe_output(filename: &str) -> Result<Value, String> {
 
 // Check if --enable-libsvtav1 or --enable-libsvthevc or libx265 are enabled in ffmpeg, choose the best one
 pub fn check_ffmpeg() -> String {
-    let output = Command::new("ffmpeg").stdout(Stdio::piped()).output().unwrap();
+    let output = Command::new("ffmpeg")
+        .stdout(Stdio::piped())
+        .output()
+        .unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
 
     struct ValidCodecs {
@@ -302,30 +375,34 @@ pub fn check_ffmpeg() -> String {
     };
 
     if stderr.contains("libsvthevc") {
-        println!("{}",format!("libsvt_hevc supported!").green());
+        println!("{}", format!("libsvt_hevc supported!").green());
         valid_codecs.libsvt_hevc = "libsvt_hevc".to_string();
     } else {
-        println!("{}",format!("libsvt_hevc not supported!").red());
+        println!("{}", format!("libsvt_hevc not supported!").red());
         valid_codecs.libsvt_hevc = "".to_string();
     }
     if stderr.contains("libsvtav1") {
-        println!("{}",format!("libsvtav1 supported!").green());
+        println!("{}", format!("libsvtav1 supported!").green());
         valid_codecs.libsvtav1 = "libsvtav1".to_string();
     } else {
-        println!("{}",format!("libsvtav1 not supported!").red());
+        println!("{}", format!("libsvtav1 not supported!").red());
         valid_codecs.libsvtav1 = "".to_string();
     }
     if stderr.contains("libx265") {
-        println!("{}",format!("libx265 supported!").green());
+        println!("{}", format!("libx265 supported!").green());
         valid_codecs.libx265 = "libx265".to_string();
     } else {
-        println!("{}",format!("libx265 not supported!").red());
+        println!("{}", format!("libx265 not supported!").red());
         valid_codecs.libx265 = "".to_string();
     }
 
-    let codec_support = String::from(format!("{} {} {}", valid_codecs.libsvt_hevc.to_string(), valid_codecs.libsvtav1.to_string(), valid_codecs.libx265.to_string()));
+    let codec_support = String::from(format!(
+        "{} {} {}",
+        valid_codecs.libsvt_hevc.to_string(),
+        valid_codecs.libsvtav1.to_string(),
+        valid_codecs.libx265.to_string()
+    ));
     return codec_support;
-
 }
 
 // fn create_dirs() -> std::io::Result<()> {
@@ -380,7 +457,7 @@ pub fn copy_streams_no_bin_data(
             "-1:v",
             "-c",
             "copy",
-            output_path
+            output_path,
         ])
         .output()
         .expect("failed to execute process")
@@ -409,7 +486,7 @@ pub fn copy_streams(
             "-1:v",
             "-c",
             "copy",
-            output_path
+            output_path,
         ])
         .output()
         .expect("failed to execute process")
@@ -449,7 +526,7 @@ pub fn walk_count(dir: &String) -> usize {
             //println!("{}", filepath);
             let mime = find_mimetype(&str_filepath);
             if mime.to_string() == "VIDEO" {
-                count = count+1;
+                count = count + 1;
                 //println!("{}", e.path().display());
             }
         }
@@ -458,7 +535,7 @@ pub fn walk_count(dir: &String) -> usize {
     return count;
 }
 
-pub fn walk_files(dir: &String) -> Vec<String>{
+pub fn walk_files(dir: &String) -> Vec<String> {
     let mut arr = vec![];
     let mut index = 0;
 
@@ -478,28 +555,26 @@ pub fn walk_files(dir: &String) -> Vec<String>{
     return arr;
 }
 
-pub fn find_mimetype(filename :&String) -> String{
-
-    let parts : Vec<&str> = filename.split('.').collect();
+pub fn find_mimetype(filename: &String) -> String {
+    let parts: Vec<&str> = filename.split('.').collect();
 
     let res = match parts.last() {
-            Some(v) =>
-                match *v {
-                    "mkv" => "VIDEO",
-                    "avi" => "VIDEO",
-                    "mp4" => "VIDEO",
-                    "divx" => "VIDEO",
-                    "flv" => "VIDEO",
-                    "m4v" => "VIDEO",
-                    "mov" => "VIDEO",
-                    "ogv" => "VIDEO",
-                    "ts" => "VIDEO",
-                    "webm" => "VIDEO",
-                    "wmv" => "VIDEO",
-                    &_ => "OTHER",
-                },
-            None => "OTHER",
-        };
+        Some(v) => match *v {
+            "mkv" => "VIDEO",
+            "avi" => "VIDEO",
+            "mp4" => "VIDEO",
+            "divx" => "VIDEO",
+            "flv" => "VIDEO",
+            "m4v" => "VIDEO",
+            "mov" => "VIDEO",
+            "ogv" => "VIDEO",
+            "ts" => "VIDEO",
+            "webm" => "VIDEO",
+            "wmv" => "VIDEO",
+            &_ => "OTHER",
+        },
+        None => "OTHER",
+    };
     return res.to_string();
 }
 
@@ -629,14 +704,17 @@ pub fn get_frame_rate(input_path: &String) -> String {
         .arg("default=noprint_wrappers=1:nokey=1")
         .output()
         .expect("failed to execute process");
-    
+
     let temp_output = output.clone();
-    let raw_framerate = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
+    let raw_framerate = String::from_utf8(temp_output.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
     let split_framerate = raw_framerate.split("/");
     let vec_framerate: Vec<&str> = split_framerate.collect();
     let frames: f32 = vec_framerate[0].parse().unwrap();
     let seconds: f32 = vec_framerate[1].parse().unwrap();
-    return (frames/seconds).to_string();
+    return (frames / seconds).to_string();
 }
 
 pub fn get_bin_data(input_path: &String) -> String {
@@ -655,7 +733,10 @@ pub fn get_bin_data(input_path: &String) -> String {
         .expect("failed to execute process");
 
     let temp_output = output.clone();
-    let bin_data = String::from_utf8(temp_output.stdout).unwrap().trim().to_string();
+    let bin_data = String::from_utf8(temp_output.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
     return bin_data;
 }
 
@@ -931,7 +1012,11 @@ pub fn merge_frames_svt_av1(
     Ok(())
 }
 
-pub fn merge_video_parts_dar(input_path: &String, output_path: &String, dar: &String) -> std::process::Output {
+pub fn merge_video_parts_dar(
+    input_path: &String,
+    output_path: &String,
+    dar: &String,
+) -> std::process::Output {
     Command::new("ffmpeg")
         .args([
             "-f",
