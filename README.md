@@ -22,18 +22,6 @@ It is an extension of the powerful [ESRGAN](https://github.com/xinntao/ESRGAN) t
 
 ---
 
-### 📖 Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data
-
-> [[Paper](https://arxiv.org/abs/2107.10833)] &emsp; [[YouTube Video](https://www.youtube.com/watch?v=fxHWoDSSvSc)] &emsp; [[B站讲解](https://www.bilibili.com/video/BV1H34y1m7sS/)] &emsp; [[Poster](https://xinntao.github.io/projects/RealESRGAN_src/RealESRGAN_poster.pdf)] &emsp; [[PPT slides](https://docs.google.com/presentation/d/1QtW6Iy8rm8rGLsJ0Ldti6kP-7Qyzy6XL/edit?usp=sharing&ouid=109799856763657548160&rtpof=true&sd=true)]<br>
-> [Xintao Wang](https://xinntao.github.io/), Liangbin Xie, [Chao Dong](https://scholar.google.com.hk/citations?user=OSDCB0UAAAAJ), [Ying Shan](https://scholar.google.com/citations?user=4oXBp9UAAAAJ&hl=en) <br>
-> [Tencent ARC Lab](https://arc.tencent.com/en/ai-demos/imgRestore); Shenzhen Institutes of Advanced Technology, Chinese Academy of Sciences
-
-<p align="center">
-  <img src="assets/teaser.jpg">
-</p>
-
----
-
 ## ⚡ Quick Usage
 
 ### Portable executable file (REVE)
@@ -73,12 +61,4 @@ OPTIONS:
 
 Note that it may introduce block inconsistency, because [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan) first crops the input image into several tiles, and then processes them separately, finally stitches together.
 
----
 
-### Some demos (best view in the full screen mode)
-
-<https://user-images.githubusercontent.com/17445847/145706977-98bc64a4-af27-481c-8abe-c475e15db7ff.MP4>
-
-<https://user-images.githubusercontent.com/17445847/145707055-6a4b79cb-3d9d-477f-8610-c6be43797133.MP4>
-
-<https://user-images.githubusercontent.com/17445847/145783523-f4553729-9f03-44a8-a7cc-782aadf67b50.MP4>
