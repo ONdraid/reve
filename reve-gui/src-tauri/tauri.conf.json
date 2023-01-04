@@ -39,7 +39,8 @@
         "signingIdentity": null
       },
       "resources": [
-        "../../models/**/*"
+        "./models/**/*",
+        "./resources/**/*"
       ],
       "shortDescription": "",
       "targets": "all",

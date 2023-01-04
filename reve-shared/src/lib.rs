@@ -1,5 +1,4 @@
 use clap::Parser;
-use colored::Colorize;
 use indicatif::ProgressBar;
 use path_clean::PathClean;
 use rayon::prelude::*;
@@ -399,7 +398,7 @@ pub fn add_to_db(
     bar: ProgressBar,
 ) -> Result<(Vec<AtomicI32>, Arc<Mutex<Vec<std::string::String>>>)> {
     let count: AtomicI32 = AtomicI32::new(0);
-    let mut db_count: AtomicI32 = AtomicI32::new(0);
+    let db_count;
     let db_count_added: AtomicI32 = AtomicI32::new(0);
     let db_count_skipped: AtomicI32 = AtomicI32::new(0);
     let files_to_process: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -427,7 +426,7 @@ pub fn add_to_db(
         params![],
     )?;
 
-    let mut filenames_skip = files.clone();
+    let filenames_skip = files.clone();
     let mut filenames = files;
 
     // get all items in db

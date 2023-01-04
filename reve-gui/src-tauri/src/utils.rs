@@ -1,8 +1,4 @@
-use std::{
-    fs::{File, OpenOptions},
-    io::{Read, Write},
-    path::{self, PathBuf},
-};
+use std::{fs::OpenOptions, io::Write, path::PathBuf};
 
 use crate::configuration::{self, ConfigData, CONFIG_FOLDER, LOG_FILE};
 

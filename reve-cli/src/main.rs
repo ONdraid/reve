@@ -1,20 +1,17 @@
-use clap::{Arg, ArgMatches, Parser};
+use clap::Parser;
 use clearscreen::clear;
 use colored::Colorize;
-use dialoguer::Confirm;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use path_clean::PathClean;
 use reve_shared::*;
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection};
 use std::env;
 use std::fs;
 use std::fs::metadata;
-use std::io::{BufRead, BufReader, Error, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+use std::path::Path;
 use std::process::exit;
 use std::process::Command;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -37,18 +34,11 @@ fn absolute_path(path: impl AsRef<Path>) -> String {
 fn main() {
     let main_now = Instant::now();
 
-    let current_exe_path = env::current_exe().unwrap();
-
-    let args_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\args.temp")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
     let mut args;
     args = Args::parse();
+
+    let temp_args;
+    temp_args = Args::parse();
 
     #[cfg(target_os = "linux")]
     match dev_shm_exists() {
@@ -63,16 +53,7 @@ fn main() {
     let mut done_output: String = "".to_string();
     let mut current_file_count = 0;
     let mut total_files: i32;
-
-    let choosen_codec = &args.codec;
-    let mut choosen_resolution = "0";
-
-    if args.resolution.is_some() {
-        // choosen_resolution equals the given resolution
-        choosen_resolution = &args.resolution.as_ref().unwrap();
-    } else {
-        choosen_resolution = "0";
-    }
+    let resolution = temp_args.resolution.unwrap().parse::<u32>().unwrap();
 
     let md = metadata(Path::new(&args.inputpath)).unwrap();
     // Check if input is a directory, if yes, check how many video files are in it, and process the ones that are smaller than the given resolution
@@ -96,8 +77,8 @@ fn main() {
 
         let result = add_to_db(
             vector_files.clone(),
-            // clone args.resolution to pass it to the add_to_db function
-            choosen_resolution.to_string(),
+            // if some args.resolution is given, use it, if not, use 0
+            resolution.clone().to_string(),
             files_bar.clone(),
         )
         .unwrap();
@@ -152,11 +133,10 @@ fn main() {
         );
 
         files_bar.finish_and_clear();
-        println!("Added {} files to the database ({} already present, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped, &args.resolution.as_ref().unwrap());
+        println!("Added {} files to the database ({} already present, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped, resolution);
         println!(
             "Upscaling {} files (Due to max height resolution: {}p)",
-            count,
-            &args.resolution.as_ref().unwrap()
+            count, resolution
         );
 
         let total_frames = vector_files_to_process.clone();
@@ -381,7 +361,7 @@ fn main() {
             .unwrap();
         //.\ffprobe.exe -i '\\192.168.1.99\Data\Animes\Agent AIKa\Saison 2\Agent AIKa - S02E03 - Trial 3 Deep Blue Girl.mkv' -v error -select_streams v -show_entries stream -show_format -show_data_hash sha256 -show_streams -of json
         let json_output = std::str::from_utf8(&ffprobe_output.stdout[..]).unwrap();
-        let height = check_ffprobe_output_i8(json_output, &args.resolution.as_ref().unwrap());
+        let height = check_ffprobe_output_i8(json_output, &resolution.to_string());
         if height.unwrap() == 1 {
             work(
                 &args,
@@ -397,7 +377,7 @@ fn main() {
             println!(
                 "{} is bigger than {}p",
                 args.inputpath,
-                args.resolution.as_ref().unwrap()
+                resolution.to_string()
             );
             println!("Set argument -r to a higher value");
             exit(1);
@@ -438,10 +418,6 @@ fn work(
     #[cfg(target_os = "windows")]
     let args_path = Path::new("temp\\args.temp");
     #[cfg(target_os = "windows")]
-    let tmp_frames_path = "temp\\tmp_frames\\";
-    #[cfg(target_os = "windows")]
-    let out_frames_path = "temp\\out_frames\\";
-    #[cfg(target_os = "windows")]
     let video_parts_path = "temp\\video_parts\\";
     #[cfg(target_os = "windows")]
     let temp_video_path = format!("temp\\temp.{}", &args.format);
@@ -450,10 +426,6 @@ fn work(
 
     #[cfg(target_os = "linux")]
     let args_path = Path::new("/dev/shm/args.temp");
-    #[cfg(target_os = "linux")]
-    let tmp_frames_path = "/dev/shm/tmp_frames/";
-    #[cfg(target_os = "linux")]
-    let out_frames_path = "/dev/shm/out_frames/";
     #[cfg(target_os = "linux")]
     let video_parts_path = "/dev/shm/video_parts/";
     #[cfg(target_os = "linux")]
