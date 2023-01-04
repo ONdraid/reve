@@ -38,7 +38,9 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": ["./models/**/*", "./resources/**/*"],
+      "resources": [
+        "../../models/**/*"
+      ],
       "shortDescription": "",
       "targets": "all",
       "windows": {

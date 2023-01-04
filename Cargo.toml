@@ -2,4 +2,5 @@
 members = [
     "reve-cli",
     "reve-gui/src-tauri",
+    "reve-shared",
 ]

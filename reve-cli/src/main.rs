@@ -1,185 +1,54 @@
-mod utils;
-use crate::utils::*;
-
-use clap::Parser;
+use clap::{Arg, ArgMatches, Parser};
 use clearscreen::clear;
 use colored::Colorize;
+use dialoguer::Confirm;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use rusqlite::Result;
-use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
+use path_clean::PathClean;
+use reve_shared::*;
+use rusqlite::{params, Connection, Result};
+use std::env;
+use std::fs;
 use std::fs::metadata;
-use std::fs::{self};
-use std::io::ErrorKind;
-use std::path::Path;
-use std::process::{exit, Command};
+use std::io::{BufRead, BufReader, Error, ErrorKind};
+use std::path::{Path, PathBuf};
+use std::process::exit;
+use std::process::Command;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use std::time::Instant;
-use std::{env, vec};
-use std::{thread, time::Duration};
 
-#[derive(Parser, Serialize, Deserialize, Debug)]
-#[clap(name = "Real-ESRGAN Video Enhance",
-       author = "ONdraid <ondraid.png@gmail.com>",
-       about = "Real-ESRGAN video upscaler with resumability",
-       long_about = None)]
+fn absolute_path(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref();
 
-struct Args {
-    /// input video path (mp4/mkv/...) or folder path (\\... or /... or C:\...)
-    #[clap(short = 'i', long, value_parser = input_validation)]
-    inputpath: String,
-
-    // maximum resolution (480 by default)
-    #[clap(short = 'r', long, value_parser = max_resolution_validation, default_value = "480")]
-    resolution: String,
-
-    // output video extension format (mp4 by default)
-    #[clap(short = 'f', long, value_parser = format_validation, default_value = "mp4")]
-    format: String,
-
-    /// upscale ratio (2, 3, 4)
-    #[clap(short = 's', long, value_parser = clap::value_parser!(u8).range(2..5), default_value_t = 2)]
-    scale: u8,
-
-    /// segment size (in frames)
-    #[clap(short = 'P', long = "parts", value_parser, default_value_t = 1000)]
-    segmentsize: u32,
-
-    /// video constant rate factor (crf: 51-0)
-    #[clap(short = 'c', long = "crf", value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 15)]
-    crf: u8,
-
-    /// video encoding preset
-    #[clap(short = 'p', long, value_parser = preset_validation, default_value = "slow")]
-    preset: String,
-
-    /// codec encoding parameters (libsvt_hevc, libsvtav1, libx265)
-    #[clap(
-        short = 'e',
-        long = "encoder",
-        value_parser = codec_validation,
-        default_value = "libx265"
-    )]
-    codec: String,
-
-    /// x265 encoding parameters
-    #[clap(
-        short = 'x',
-        long,
-        value_parser,
-        default_value = "psy-rd=2:aq-strength=1:deblock=0,0:bframes=8"
-    )]
-    x265params: String,
-
-    // (Optional) output video path (file.mp4/mkv/...)
-    #[clap(short = 'o', long, value_parser = output_validation)]
-    outputpath: Option<String>,
-}
-
-struct Segment {
-    index: u32,
-    size: u32,
-}
-
-fn input_validation(s: &str) -> Result<String, String> {
-    let p = Path::new(s);
-
-    // if the path in p contains a double quote, remove it and everything after it
-    if p.to_str().unwrap().contains("\"") {
-        let mut s = p.to_str().unwrap().to_string();
-        s.truncate(s.find("\"").unwrap());
-        return Ok(s);
-    }
-
-    if p.is_dir() {
-        return Ok(String::from_str(s).unwrap());
-    }
-
-    if !p.exists() {
-        return Err(String::from_str("input path not found").unwrap());
-    }
-
-    match p.extension().unwrap().to_str().unwrap() {
-        "mp4" | "mkv" | "avi" => Ok(s.to_string()),
-        _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
-    }
-}
-
-fn output_validation(s: &str) -> Result<String, String> {
-    let p = Path::new(s);
-
-    if p.exists() {
-        println!("{} already exists!", &s);
-        exit(1);
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
     } else {
-        match p.extension().unwrap().to_str().unwrap() {
-            "mp4" | "mkv" | "avi" => Ok(s.to_string()),
-            _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
-        }
+        env::current_dir()
+            .expect("could not get current path")
+            .join(path)
     }
-}
+    .clean();
 
-fn output_validation_dir(s: &str) -> Result<String, String> {
-    let p = Path::new(s);
-
-    if p.exists() {
-        return Ok("already exists".to_string());
-    } else {
-        match p.extension().unwrap().to_str().unwrap() {
-            "mp4" | "mkv" | "avi" => Ok(s.to_string()),
-            _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
-        }
-    }
-}
-
-fn format_validation(s: &str) -> Result<String, String> {
-    match s {
-        "mp4" | "mkv" | "avi" => Ok(s.to_string()),
-        _ => Err(String::from_str("valid output formats: mp4/mkv/avi").unwrap()),
-    }
-}
-
-fn max_resolution_validation(s: &str) -> Result<String, String> {
-    let validate = s.parse::<f64>().is_ok();
-    match validate {
-        true => Ok(s.to_string()),
-        false => Err(String::from_str("valid resolution is numeric!").unwrap()),
-    }
-}
-
-fn preset_validation(s: &str) -> Result<String, String> {
-    match s {
-        "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow"
-        | "slower" | "veryslow" => Ok(s.to_string()),
-        _ => Err(String::from_str(
-            "valid: ultrafast/superfast/veryfast/faster/fast/medium/slow/slower/veryslow",
-        )
-        .unwrap()),
-    }
-}
-
-fn codec_validation(s: &str) -> Result<String, String> {
-    match s {
-        "libx265" | "libsvt_hevc" | "libsvtav1" => Ok(s.to_string()),
-        _ => Err(String::from_str("valid: libx265/libsvt_hevc/libsvtav1").unwrap()),
-    }
+    absolute_path.into_os_string().into_string().unwrap()
 }
 
 fn main() {
     let main_now = Instant::now();
 
-    let mut args;
-    args = Args::parse();
-
     let current_exe_path = env::current_exe().unwrap();
 
-    // Try to create directories needed
-    match create_dirs() {
-        Err(e) => println!("{:?}", e),
-        _ => (),
-    }
+    let args_path = current_exe_path
+        .parent()
+        .unwrap()
+        .join("temp\\args.temp")
+        .into_os_string()
+        .into_string()
+        .unwrap();
 
-    check_bins();
+    let mut args;
+    args = Args::parse();
 
     #[cfg(target_os = "linux")]
     match dev_shm_exists() {
@@ -195,59 +64,14 @@ fn main() {
     let mut current_file_count = 0;
     let mut total_files: i32;
 
-    #[cfg(target_os = "windows")]
-    let tmp_frames_path = "temp\\tmp_frames\\";
-    #[cfg(target_os = "windows")]
-    let out_frames_path = "temp\\out_frames\\";
-    #[cfg(target_os = "windows")]
-    let video_parts_path = "temp\\video_parts\\";
-    #[cfg(target_os = "windows")]
-    let temp_video_path = format!("temp\\temp.{}", &args.format);
-    #[cfg(target_os = "windows")]
-    let txt_list_path = "temp\\parts.txt";
-    #[cfg(target_os = "windows")]
-    let args_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("temp\\args.temp")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
-    #[cfg(target_os = "linux")]
-    let tmp_frames_path = "/dev/shm/tmp_frames/";
-    #[cfg(target_os = "linux")]
-    let out_frames_path = "/dev/shm/out_frames/";
-    #[cfg(target_os = "linux")]
-    let video_parts_path = "/dev/shm/video_parts/";
-    #[cfg(target_os = "linux")]
-    let temp_video_path = format!("/dev/shm/temp.{}", &args.format);
-    #[cfg(target_os = "linux")]
-    let txt_list_path = "/dev/shm/parts.txt";
-    #[cfg(target_os = "linux")]
-    let args_path = current_exe_path
-        .parent()
-        .unwrap()
-        .join("/dev/shm/args.temp")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
-    let ffmpeg_support = check_ffmpeg();
-
     let choosen_codec = &args.codec;
-    if ffmpeg_support.contains(choosen_codec) {
-        println!(
-            "Codec {} supported by current ffmpeg binary!",
-            choosen_codec
-        );
+    let mut choosen_resolution = "0";
+
+    if args.resolution.is_some() {
+        // choosen_resolution equals the given resolution
+        choosen_resolution = &args.resolution.as_ref().unwrap();
     } else {
-        println!(
-            "Codec {} not supported by current ffmpeg binary! Supported:{}",
-            choosen_codec, ffmpeg_support
-        );
-        // TODO implement fallback to supported codec
-        std::process::exit(1);
+        choosen_resolution = "0";
     }
 
     let md = metadata(Path::new(&args.inputpath)).unwrap();
@@ -272,7 +96,8 @@ fn main() {
 
         let result = add_to_db(
             vector_files.clone(),
-            args.resolution.clone(),
+            // clone args.resolution to pass it to the add_to_db function
+            choosen_resolution.to_string(),
             files_bar.clone(),
         )
         .unwrap();
@@ -327,10 +152,11 @@ fn main() {
         );
 
         files_bar.finish_and_clear();
-        println!("Added {} files to the database ({} already present, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped, &args.resolution);
+        println!("Added {} files to the database ({} already present, {} skipped due to max resolution being {}p)", db_count_added, db_count, db_count_skipped, &args.resolution.as_ref().unwrap());
         println!(
             "Upscaling {} files (Due to max height resolution: {}p)",
-            count, &args.resolution
+            count,
+            &args.resolution.as_ref().unwrap()
         );
 
         let total_frames = vector_files_to_process.clone();
@@ -369,7 +195,7 @@ fn main() {
             current_file_count = current_file_count + 1;
             total_files = vector_files_to_process.len() as i32;
             args.inputpath = file.clone();
-            clear_dirs(&[tmp_frames_path, out_frames_path]);
+            rebuild_temp(true);
 
             if args.outputpath.is_none() {
                 let path = Path::new(&args.inputpath);
@@ -460,16 +286,19 @@ fn main() {
 
             // Validation
             {
-                let p = Path::new(&temp_video_path);
-                if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
-                    clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
-                    fs::remove_file(txt_list_path).expect("Unable to delete file");
-                    if std::path::Path::new(&args_path).exists() {
-                        fs::remove_file(&args_path).expect("Unable to delete file");
-                    }
-                    fs::remove_file(&temp_video_path).expect("Unable to delete file");
-                } else {
-                    panic!("final file validation error: try running again")
+                let in_extension = Path::new(&args.inputpath).extension().unwrap();
+                let out_extension = Path::new(&output_path).extension().unwrap();
+
+                if in_extension == "mkv" && out_extension != "mkv" {
+                    clear().unwrap();
+                    println!(
+                        "{} Invalid value {} for '{}': mkv file can only be exported as mkv file\n\nFor more information try {}",
+                        "error:".to_string().bright_red(),
+                        format!("\"{}\"", args.inputpath).yellow(),
+                        "--outputpath <OUTPUTPATH>".to_string().yellow(),
+                        "--help".to_string().green()
+                    );
+                    std::process::exit(1);
                 }
             }
         }
@@ -552,7 +381,7 @@ fn main() {
             .unwrap();
         //.\ffprobe.exe -i '\\192.168.1.99\Data\Animes\Agent AIKa\Saison 2\Agent AIKa - S02E03 - Trial 3 Deep Blue Girl.mkv' -v error -select_streams v -show_entries stream -show_format -show_data_hash sha256 -show_streams -of json
         let json_output = std::str::from_utf8(&ffprobe_output.stdout[..]).unwrap();
-        let height = check_ffprobe_output_i8(json_output, &args.resolution);
+        let height = check_ffprobe_output_i8(json_output, &args.resolution.as_ref().unwrap());
         if height.unwrap() == 1 {
             work(
                 &args,
@@ -560,34 +389,40 @@ fn main() {
                 current_file_count as i32,
                 total_files,
                 done_output,
-                output_path,
+                output_path.clone(),
                 total_frames_count,
                 temp_vector,
             );
         } else {
-            println!("{} is bigger than {}p", args.inputpath, args.resolution);
+            println!(
+                "{} is bigger than {}p",
+                args.inputpath,
+                args.resolution.as_ref().unwrap()
+            );
             println!("Set argument -r to a higher value");
             exit(1);
         }
 
         // Validation
         {
-            let p = Path::new(&temp_video_path);
-            if p.exists() && fs::File::open(p).unwrap().metadata().unwrap().len() != 0 {
-                clear_dirs(&[tmp_frames_path, out_frames_path, video_parts_path]);
-                fs::remove_file(txt_list_path).expect("Unable to delete file");
-                if std::path::Path::new(&args_path).exists() {
-                    fs::remove_file(&args_path).expect("Unable to delete file");
-                }
-                fs::remove_file(temp_video_path).expect("Unable to delete file");
-            } else {
-                panic!("final file validation error: try running again")
+            let in_extension = Path::new(&args.inputpath).extension().unwrap();
+            let out_extension = Path::new(&output_path).extension().unwrap();
+
+            if in_extension == "mkv" && out_extension != "mkv" {
+                clear().unwrap();
+                println!(
+                    "{} Invalid value {} for '{}': mkv file can only be exported as mkv file\n\nFor more information try {}",
+                    "error:".to_string().bright_red(),
+                    format!("\"{}\"", args.inputpath).yellow(),
+                    "--outputpath <OUTPUTPATH>".to_string().yellow(),
+                    "--help".to_string().green()
+                );
+                std::process::exit(1);
             }
         }
     }
 }
 
-//fn work(args: &Args, current_file_count: i32, total_files: i32, done_output: String, output_path: String, total_segment_count: u32, mut frame_position: u64) -> u64 {
 fn work(
     args: &Args,
     dar: String,
@@ -641,13 +476,13 @@ fn work(
                     previous_file.file_name().unwrap().to_str().unwrap()
                 );
                 // Resume upscale
-                clear_dirs(&[&tmp_frames_path, &out_frames_path]);
+                rebuild_temp(true);
                 clear().expect("failed to clear screen");
                 println!("{}", "resuming upscale".to_string().green());
             }
         } else {
             // Remove and start new
-            clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
+            rebuild_temp(false);
             match fs::remove_file(&txt_list_path) {
                 Ok(()) => "ok",
                 Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
@@ -675,7 +510,7 @@ fn work(
         }
     } else {
         // Remove and start new
-        clear_dirs(&[&tmp_frames_path, &out_frames_path, &video_parts_path]);
+        rebuild_temp(false);
         match fs::remove_file(&txt_list_path) {
             Ok(()) => "ok",
             Err(_e) if _e.kind() == ErrorKind::NotFound => "not found",
@@ -1057,16 +892,6 @@ fn work(
             }
         }
     }
-
-    //Check if aspect ratio is correct, if not, convert it
-    /*     if dar == "0" {
-        let temp_output_path = format!("temp/temp_aspect.{}", &args.format);
-        convert_aspect_ratio_dar(&temp_video_path.to_string(), &temp_output_path, &dar);
-        fs::remove_file(&temp_video_path).expect("failed to remove file");
-        println!("{}", &temp_output_path);
-        println!("{}", &temp_video_path);
-        fs::rename(&temp_output_path, &temp_video_path).expect("failed to rename file");
-    } */
 
     //Check if there is invalid bin data in the input file
     let bin_data = get_bin_data(&args.inputpath);

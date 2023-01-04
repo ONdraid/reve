@@ -1,92 +1,395 @@
+use clap::Parser;
 use colored::Colorize;
 use indicatif::ProgressBar;
 use path_clean::PathClean;
 use rayon::prelude::*;
 use rusqlite::{params, Connection, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::from_str;
 use serde_json::Value;
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::path::Path;
+use std::process::exit;
 use std::process::Output;
-use std::process::{Command, Stdio};
+use std::process::{ChildStderr, Command, Stdio};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::vec;
 use walkdir::WalkDir;
 
-pub fn check_bins() {
-    #[cfg(target_os = "windows")]
-    let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan.exe").exists();
-    #[cfg(target_os = "linux")]
-    let realesrgan = std::path::Path::new("realesrgan-ncnn-vulkan").exists();
-    #[cfg(target_os = "windows")]
-    let ffmpeg = std::path::Path::new("ffmpeg.exe").exists();
-    #[cfg(target_os = "linux")]
-    let ffmpeg = std::path::Path::new("ffmpeg").exists();
-    #[cfg(target_os = "windows")]
-    let ffprobe = std::path::Path::new("ffprobe.exe").exists();
-    #[cfg(target_os = "linux")]
-    let ffprobe = std::path::Path::new("ffprobe").exists();
-    #[cfg(target_os = "windows")]
-    let model = std::path::Path::new("models\\realesr-animevideov3-x2.bin").exists();
-    #[cfg(target_os = "linux")]
-    let model = std::path::Path::new("models/realesr-animevideov3-x2.bin").exists();
+#[derive(Serialize, Deserialize)]
+pub struct Segment {
+    pub index: u32,
+    pub size: u32,
+}
 
-    if realesrgan == true {
-        println!(
-            "{}",
-            String::from("realesrgan-ncnn-vulkan exists!")
-                .green()
-                .bold()
-        );
-    } else {
-        println!(
-            "{}",
-            String::from("realesrgan-ncnn-vulkan does not exist!")
-                .red()
-                .bold()
-        );
-        std::process::exit(1);
-    }
-    if ffmpeg == true {
-        println!("{}", String::from("ffmpeg exists!").green().bold());
-    } else {
-        match Command::new("ffmpeg").spawn() {
-            Ok(_) => println!("{}", String::from("ffmpeg exists!").green().bold()),
-            Err(_) => {
-                println!("{}", String::from("ffmpeg does not exist!").red().bold());
-                std::process::exit(1);
+#[derive(Serialize, Deserialize)]
+pub struct Video {
+    pub path: String,
+    pub output_path: String,
+    pub segments: Vec<Segment>,
+    pub frame_rate: f32,
+    pub frame_count: u32,
+    pub segment_size: u32,
+    pub segment_count: u32,
+    pub upscale_ratio: u8,
+}
+
+impl Video {
+    pub fn new(path: &str, output_path: &str, segment_size: u32, upscale_ratio: u8) -> Video {
+        let frame_count = {
+            let output = Command::new("mediainfo")
+                .arg("--Output=Video;%FrameCount%")
+                .arg(path)
+                .output()
+                .expect("failed to execute process");
+            let r = String::from_utf8(output.stdout)
+                .unwrap()
+                .trim()
+                .parse::<u32>();
+            match r {
+                Err(_e) => 0,
+                _ => r.unwrap(),
             }
+        };
+
+        let frame_rate = {
+            let output = Command::new("mediainfo")
+                .arg("--Output=Video;%FrameRate%")
+                .arg(path)
+                .output()
+                .expect("failed to execute process");
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .trim()
+                .to_string()
+                .parse::<f32>()
+                .unwrap()
+        };
+
+        let parts_num = (frame_count as f32 / segment_size as f32).ceil() as i32;
+        let last_segment_size = get_last_segment_size(frame_count, segment_size);
+
+        let mut segments = Vec::new();
+        for i in 0..(parts_num - 1) {
+            let frame_number = segment_size;
+            segments.push(Segment {
+                index: i as u32,
+                size: frame_number as u32,
+            });
+        }
+        segments.push(Segment {
+            index: (parts_num - 1) as u32,
+            size: last_segment_size as u32,
+        });
+
+        let segment_count = segments.len() as u32;
+
+        Video {
+            path: path.to_string(),
+            output_path: output_path.to_string(),
+            segments,
+            frame_rate,
+            frame_count,
+            segment_size,
+            segment_count,
+            upscale_ratio,
         }
     }
-    if ffprobe == true {
-        println!("{}", String::from("ffprobe exists!").green().bold());
+
+    pub fn export_segment(&self, index: usize) -> Result<BufReader<ChildStderr>, Error> {
+        let index_dir = format!("temp\\tmp_frames\\{}", index);
+        fs::create_dir(&index_dir).unwrap();
+
+        let output_path = format!("temp\\tmp_frames\\{}\\frame%08d.png", index);
+        let start_time = if index == 0 {
+            String::from("0")
+        } else {
+            ((index as u32 * self.segment_size - 1) as f32 / self.frame_rate).to_string()
+        };
+        let segments_index = if self.segments.len() == 1 { 0 } else { 1 };
+        let stderr = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "verbose",
+                "-ss",
+                &start_time,
+                "-i",
+                &self.path.to_string(),
+                "-qscale:v",
+                "1",
+                "-qmin",
+                "1",
+                "-qmax",
+                "1",
+                "-vsync",
+                "0",
+                "-vframes",
+                &self.segments[segments_index].size.to_string(),
+                &output_path,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+            .stderr
+            .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture standard output."))?;
+
+        Ok(BufReader::new(stderr))
+    }
+
+    pub fn upscale_segment(&self, index: usize) -> Result<BufReader<ChildStderr>, Error> {
+        let input_path = format!("temp\\tmp_frames\\{}", index);
+        let output_path = format!("temp\\out_frames\\{}", index);
+        fs::create_dir(&output_path).expect("could not create directory");
+
+        let stderr = Command::new("realesrgan-ncnn-vulkan")
+            .args([
+                "-i",
+                &input_path,
+                "-o",
+                &output_path,
+                "-n",
+                "realesr-animevideov3-x2",
+                "-s",
+                &self.upscale_ratio.to_string(),
+                "-f",
+                "png",
+                "-v",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+            .stderr
+            .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture standard output."))?;
+
+        Ok(BufReader::new(stderr))
+    }
+
+    // TODO: args builder for custom commands
+    pub fn merge_segment(&self, args: Vec<&str>) -> Result<BufReader<ChildStderr>, Error> {
+        let mut stderr = Command::new("ffmpeg");
+        for arg in args {
+            stderr.arg(arg);
+        }
+        let stderr = stderr
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+            .stderr
+            .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture standard output."))?;
+
+        Ok(BufReader::new(stderr))
+    }
+
+    pub fn concatenate_segments(&self) {
+        let mut f_content = String::from("file 'video_parts\\0.mp4'");
+        for segment_index in 1..self.segment_count {
+            let video_part_path = format!("video_parts\\{}.mp4", segment_index);
+            f_content = format!("{}\nfile '{}'", f_content, video_part_path);
+        }
+        fs::write("temp\\parts.txt", f_content).unwrap();
+
+        Command::new("ffmpeg")
+            .args([
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                "temp\\parts.txt",
+                "-i",
+                &self.path,
+                "-map",
+                "0:v",
+                "-map",
+                "1:a?",
+                "-map",
+                "1:s?",
+                "-map_chapters",
+                "1",
+                "-c",
+                "copy",
+                &self.output_path,
+            ])
+            .output()
+            .unwrap();
+        fs::remove_file("temp\\parts.txt").unwrap();
+    }
+}
+
+#[derive(Parser, Serialize, Deserialize, Debug)]
+#[clap(name = "Real-ESRGAN Video Enhance",
+author = "ONdraid <ondraid.png@gmail.com>",
+about = "Real-ESRGAN video upscaler with resumability",
+long_about = None)]
+pub struct Args {
+    /// input video path (mp4/mkv/...) or folder path (\\... or /... or C:\...)
+    #[clap(short = 'i', long, value_parser = input_validation)]
+    pub inputpath: String,
+
+    // maximum resolution (480 by default)
+    #[clap(short = 'r', long, value_parser = max_resolution_validation, default_value = "480")]
+    pub resolution: Option<String>,
+
+    // output video extension format (mp4 by default)
+    #[clap(short = 'f', long, value_parser = format_validation, default_value = "mp4")]
+    pub format: String,
+
+    /// upscale ratio (2, 3, 4)
+    #[clap(short = 's', long, value_parser = clap::value_parser!(u8).range(2..5), default_value_t = 2)]
+    pub scale: u8,
+
+    /// segment size (in frames)
+    #[clap(short = 'P', long = "parts", value_parser, default_value_t = 1000)]
+    pub segmentsize: u32,
+
+    /// video constant rate factor (crf: 51-0)
+    #[clap(short = 'c', long = "crf", value_parser = clap::value_parser!(u8).range(0..52), default_value_t = 15)]
+    pub crf: u8,
+
+    /// video encoding preset
+    #[clap(short = 'p', long, value_parser = preset_validation, default_value = "slow")]
+    pub preset: String,
+
+    /// codec encoding parameters (libsvt_hevc, libsvtav1, libx265)
+    #[clap(
+        short = 'e',
+        long = "encoder",
+        value_parser = codec_validation,
+        default_value = "libx265"
+    )]
+    pub codec: String,
+
+    /// x265 encoding parameters
+    #[clap(
+        short = 'x',
+        long,
+        value_parser,
+        default_value = "psy-rd=2:aq-strength=1:deblock=0,0:bframes=8"
+    )]
+    pub x265params: String,
+
+    // (Optional) output video path (file.mp4/mkv/...)
+    #[clap(short = 'o', long, value_parser = output_validation)]
+    pub outputpath: Option<String>,
+}
+
+fn input_validation(s: &str) -> Result<String, String> {
+    let p = Path::new(s);
+
+    // if the path in p contains a double quote, remove it and everything after it
+    if p.to_str().unwrap().contains("\"") {
+        let mut s = p.to_str().unwrap().to_string();
+        s.truncate(s.find("\"").unwrap());
+        return Ok(s);
+    }
+
+    if p.is_dir() {
+        return Ok(String::from_str(s).unwrap());
+    }
+
+    if !p.exists() {
+        return Err(String::from_str("input path not found").unwrap());
+    }
+
+    match p.extension().unwrap().to_str().unwrap() {
+        "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+        _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
+    }
+}
+
+pub fn output_validation(s: &str) -> Result<String, String> {
+    let p = Path::new(s);
+
+    if p.exists() {
+        println!("{} already exists!", &s);
+        exit(1);
     } else {
-        match Command::new("ffprobe").spawn() {
-            Ok(_) => println!("{}", String::from("ffprobe exists!").green().bold()),
-            Err(_) => {
-                println!("{}", String::from("ffprobe does not exist!").red().bold());
-                std::process::exit(1);
-            }
+        match p.extension().unwrap().to_str().unwrap() {
+            "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+            _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
         }
     }
-    if model == true {
-        println!(
-            "{}",
-            String::from("models\\realesr-animevideov3-x2.bin exists!")
-                .green()
-                .bold()
-        );
+}
+
+pub fn output_validation_dir(s: &str) -> Result<String, String> {
+    let p = Path::new(s);
+
+    if p.exists() {
+        return Ok("already exists".to_string());
     } else {
-        println!(
-            "{}",
-            String::from("models\\realesr-animevideov3-x2.bin does not exist!")
-                .red()
-                .bold()
-        );
-        std::process::exit(1);
+        match p.extension().unwrap().to_str().unwrap() {
+            "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+            _ => Err(String::from_str("valid input formats: mp4/mkv/avi").unwrap()),
+        }
+    }
+}
+
+fn format_validation(s: &str) -> Result<String, String> {
+    match s {
+        "mp4" | "mkv" | "avi" => Ok(s.to_string()),
+        _ => Err(String::from_str("valid output formats: mp4/mkv/avi").unwrap()),
+    }
+}
+
+fn max_resolution_validation(s: &str) -> Result<String, String> {
+    let validate = s.parse::<f64>().is_ok();
+    match validate {
+        true => Ok(s.to_string()),
+        false => Err(String::from_str("valid resolution is numeric!").unwrap()),
+    }
+}
+
+fn preset_validation(s: &str) -> Result<String, String> {
+    match s {
+        "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow"
+        | "slower" | "veryslow" => Ok(s.to_string()),
+        _ => Err(String::from_str(
+            "valid: ultrafast/superfast/veryfast/faster/fast/medium/slow/slower/veryslow",
+        )
+        .unwrap()),
+    }
+}
+
+fn codec_validation(s: &str) -> Result<String, String> {
+    match s {
+        "libx265" | "libsvt_hevc" | "libsvtav1" => Ok(s.to_string()),
+        _ => Err(String::from_str("valid: libx265/libsvt_hevc/libsvtav1").unwrap()),
+    }
+}
+
+pub fn get_last_segment_size(frame_count: u32, segment_size: u32) -> u32 {
+    let last_segment_size = (frame_count % segment_size) as u32;
+    if last_segment_size == 0 {
+        segment_size
+    } else {
+        last_segment_size - 1
+    }
+}
+
+pub fn rebuild_temp(keep_args: bool) {
+    let _ = fs::create_dir("temp");
+    if !keep_args {
+        println!("removing temp");
+        fs::remove_dir_all("temp").expect("could not remove temp. try deleting manually");
+
+        for dir in ["temp\\tmp_frames", "temp\\out_frames", "temp\\video_parts"] {
+            println!("creating {}", dir);
+            fs::create_dir_all(dir).unwrap();
+        }
+    } else {
+        for dir in ["temp\\tmp_frames", "temp\\out_frames"] {
+            println!("removing {}", dir);
+            fs::remove_dir_all(dir)
+                .unwrap_or_else(|_| panic!("could not remove {:?}. try deleting manually", dir));
+            println!("creating {}", dir);
+            fs::create_dir_all(dir).unwrap();
+        }
+        println!("removing parts.txt");
+        let _ = fs::remove_file("temp\\parts.txt");
     }
 }
 
@@ -344,75 +647,6 @@ pub fn get_ffprobe_output(filename: &str) -> Result<Value, String> {
     }
 }
 
-// Check if --enable-libsvtav1 or --enable-libsvthevc or libx265 are enabled in ffmpeg, choose the best one
-pub fn check_ffmpeg() -> String {
-    let output = Command::new("ffmpeg")
-        .stdout(Stdio::piped())
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-
-    struct ValidCodecs {
-        libsvt_hevc: String,
-        libsvtav1: String,
-        libx265: String,
-    }
-
-    impl Default for ValidCodecs {
-        fn default() -> ValidCodecs {
-            ValidCodecs {
-                libsvt_hevc: 0.to_string(),
-                libsvtav1: 0.to_string(),
-                libx265: 0.to_string(),
-            }
-        }
-    }
-
-    let mut valid_codecs = ValidCodecs {
-        libsvt_hevc: 0.to_string(),
-        libsvtav1: 0.to_string(),
-        libx265: 0.to_string(),
-    };
-
-    if stderr.contains("libsvthevc") {
-        println!("{}", format!("libsvt_hevc supported!").green());
-        valid_codecs.libsvt_hevc = "libsvt_hevc".to_string();
-    } else {
-        println!("{}", format!("libsvt_hevc not supported!").red());
-        valid_codecs.libsvt_hevc = "".to_string();
-    }
-    if stderr.contains("libsvtav1") {
-        println!("{}", format!("libsvtav1 supported!").green());
-        valid_codecs.libsvtav1 = "libsvtav1".to_string();
-    } else {
-        println!("{}", format!("libsvtav1 not supported!").red());
-        valid_codecs.libsvtav1 = "".to_string();
-    }
-    if stderr.contains("libx265") {
-        println!("{}", format!("libx265 supported!").green());
-        valid_codecs.libx265 = "libx265".to_string();
-    } else {
-        println!("{}", format!("libx265 not supported!").red());
-        valid_codecs.libx265 = "".to_string();
-    }
-
-    let codec_support = String::from(format!(
-        "{} {} {}",
-        valid_codecs.libsvt_hevc.to_string(),
-        valid_codecs.libsvtav1.to_string(),
-        valid_codecs.libx265.to_string()
-    ));
-    return codec_support;
-}
-
-// fn create_dirs() -> std::io::Result<()> {
-pub fn create_dirs() -> Result<(), std::io::Error> {
-    fs::create_dir_all("temp\\tmp_frames\\")?;
-    fs::create_dir_all("temp\\video_parts\\")?;
-    fs::create_dir_all("temp\\out_frames\\")?;
-    Ok(())
-}
-
 #[cfg(target_os = "linux")]
 pub fn dev_shm_exists() -> Result<(), std::io::Error> {
     let path = "/dev/shm";
@@ -505,16 +739,6 @@ pub fn absolute_path(path: impl AsRef<Path>) -> String {
     .clean();
 
     absolute_path.into_os_string().into_string().unwrap()
-}
-
-pub fn clear_dirs(dirs: &[&str]) {
-    for dir in dirs {
-        match fs::remove_dir_all(dir) {
-            Ok(_) => (),
-            Err(_) => fs::remove_dir_all(dir).unwrap(),
-        };
-        fs::create_dir(dir).unwrap();
-    }
 }
 
 pub fn walk_count(dir: &String) -> usize {
