@@ -96,11 +96,7 @@ impl Video {
         } else {
             ((index as u32 * self.segment_size - 1) as f32 / self.frame_rate).to_string()
         };
-        let segments_index = if self.segments.len() == 1 {
-            0
-        } else {
-            1
-        };
+        let segments_index = if self.segments.len() == 1 { 0 } else { 1 };
         let stderr = Command::new("ffmpeg")
             .args([
                 "-v",

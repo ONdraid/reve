@@ -1,6 +1,6 @@
 [package]
 name = "reve"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,3 +14,4 @@ colored = "2.0.0"
 indicatif = "0.17.1"
 dialoguer = "0.10.2"
 path-clean = "0.1.0"
+iced = { version = "0.6", features = ["smol"]}
