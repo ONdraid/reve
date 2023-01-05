@@ -1,0 +1,17 @@
+[package]
+name = "reve-shared"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.0.25", features = ["derive"] }
+serde = { version = "1.0.104", features = ["derive"] }
+serde_json = "1.0.48"
+colored = "2.0.0"
+indicatif = "0.17.1"
+path-clean = "0.1.0"
+walkdir = "2.3.2"
+rusqlite = { version = "0.28.0", features = ["bundled"] }
+rayon = "1.6.1"
